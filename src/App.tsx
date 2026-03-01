@@ -11,6 +11,7 @@ const AppContent = () => {
     useKeyboardShortcuts();
     const [showSidebar, setShowSidebar] = useState(true);
     const [showShortcuts, setShowShortcuts] = useState(false);
+    const [showTimeline, setShowTimeline] = useState(true);
 
     return (
         <div className="app-container">
@@ -44,6 +45,12 @@ const AppContent = () => {
                     >
                         Shortcuts
                     </button>
+                    <button
+                        onClick={() => setShowTimeline(!showTimeline)}
+                        style={{ background: 'none', border: 'none', color: showTimeline ? '#ccc' : '#666', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                        Timeline
+                    </button>
                 </div>
 
                 <div className="workspace">
@@ -52,7 +59,7 @@ const AppContent = () => {
 
                     <div className="canvas-area">
                         <Editor />
-                        <Timeline />
+                        {showTimeline && <Timeline />}
                     </div>
                 </div>
             </main>

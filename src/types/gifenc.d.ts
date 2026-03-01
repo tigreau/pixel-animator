@@ -26,6 +26,6 @@ declare module 'gifenc' {
     export function quantize(
         rgba: Uint8Array | Uint8ClampedArray,
         maxColors: number,
-        options?: any
+        options?: Record<string, unknown>
     ): number[][];
 }

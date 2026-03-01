@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 import { TimelineFrame } from './TimelineFrame';
 import { SortableFrame } from './SortableFrame';
 import { TOTAL_PIXELS } from '../../types';
+import type { Sprite } from '../../types';
+import type { LayerExportMode } from '../../utils/export';
 import {
     DndContext,
     closestCenter,
@@ -22,12 +24,14 @@ interface ImportExportMenuProps {
     selectedSpriteIds: Set<number>;
     setSelectedSpriteIds: React.Dispatch<React.SetStateAction<Set<number>>>;
     setIsSelectionMode: React.Dispatch<React.SetStateAction<boolean>>;
+    hideImport?: boolean;
 }
 
 const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
     selectedSpriteIds,
     setSelectedSpriteIds,
-    setIsSelectionMode
+    setIsSelectionMode,
+    hideImport = false
 }) => {
     const [openMenu, setOpenMenu] = useState<'import' | 'export' | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -46,7 +50,7 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
         layerExportMode,
         setLayerExportMode,
         importMultipleFromJSON, // Added for the new import functionality
-        projectName, // Added project name
+        projectName, setProjectName, // Added project name
         activeSprite, // Added for exportFrame
         sprites // Added for exportSpriteSheet
     } = useEditor();
@@ -117,65 +121,67 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
     return (
         <div ref={containerRef} style={{ display: 'flex', gap: '8px', position: 'relative', zIndex: 100 }}>
             {/* Import Button & File Input */}
-            <div style={{ position: 'relative' }}>
-                <button className="secondary-btn-small" onClick={() => toggleMenu('import')}>
-                    Import ▾
-                </button>
-                <input
-                    type="file"
-                    accept=".json"
-                    style={{ display: 'none' }}
-                    ref={fileInputRef}
-                    onChange={handleImportJSON}
-                    multiple
-                />
-                <input
-                    type="file"
-                    accept=".json"
-                    style={{ display: 'none' }}
-                    ref={projectInputRef}
-                    onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) loadProject(file);
-                        if (projectInputRef.current) projectInputRef.current.value = '';
-                        setOpenMenu(null);
-                    }}
-                />
-                {openMenu === 'import' && (
-                    <div style={{
-                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
-                        background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
-                        padding: '8px', zIndex: 100, minWidth: '150px',
-                        display: 'flex', flexDirection: 'column', gap: '6px',
-                        boxShadow: '0 -4px 6px rgba(0,0,0,0.3)'
-                    }}>
-                        <button
-                            style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#444'}
-                            onMouseOut={(e) => e.currentTarget.style.background = '#333'}
-                            onClick={() => projectInputRef.current?.click()}
-                        >
-                            Load Project (.json)
-                        </button>
+            {!hideImport && (
+                <div style={{ position: 'relative' }}>
+                    <button className="secondary-btn-small" onClick={() => toggleMenu('import')}>
+                        Import ▾
+                    </button>
+                    <input
+                        type="file"
+                        accept=".json"
+                        style={{ display: 'none' }}
+                        ref={fileInputRef}
+                        onChange={handleImportJSON}
+                        multiple
+                    />
+                    <input
+                        type="file"
+                        accept=".json"
+                        style={{ display: 'none' }}
+                        ref={projectInputRef}
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) loadProject(file);
+                            if (projectInputRef.current) projectInputRef.current.value = '';
+                            setOpenMenu(null);
+                        }}
+                    />
+                    {openMenu === 'import' && (
+                        <div style={{
+                            position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
+                            background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+                            padding: '8px', zIndex: 100, minWidth: '150px',
+                            display: 'flex', flexDirection: 'column', gap: '6px',
+                            boxShadow: '0 -4px 6px rgba(0,0,0,0.3)'
+                        }}>
+                            <button
+                                style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#444'}
+                                onMouseOut={(e) => e.currentTarget.style.background = '#333'}
+                                onClick={() => projectInputRef.current?.click()}
+                            >
+                                Load Project (.json)
+                            </button>
 
-                        <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
+                            <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
 
-                        <button
-                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
-                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            Import Frames (.json)
-                        </button>
-                    </div>
-                )}
-            </div>
+                            <button
+                                style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                onClick={() => fileInputRef.current?.click()}
+                            >
+                                Import Frames (.json)
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Export Menu */}
             <div style={{ position: 'relative' }}>
                 <button className="secondary-btn-small" onClick={() => toggleMenu('export')}>
-                    Export ▾
+                    {selectedSpriteIds.size > 0 ? 'Export Selected ▾' : 'Export ▾'}
                 </button>
                 {openMenu === 'export' && (
                     <div style={{
@@ -185,21 +191,38 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
                         display: 'flex', flexDirection: 'column', gap: '6px',
                         boxShadow: '0 -4px 6px rgba(0,0,0,0.3)'
                     }}>
-                        <button
-                            style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#444'}
-                            onMouseOut={(e) => e.currentTarget.style.background = '#333'}
-                            onClick={() => { saveProject(projectName); setOpenMenu(null); }}
-                        >
-                            Save Project (.json)
-                        </button>
+                        {selectedSpriteIds.size === 0 && (
+                            <>
+                                <input
+                                    type="text"
+                                    className="project-name-input"
+                                    value={projectName}
+                                    onChange={(e) => setProjectName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.currentTarget.blur();
+                                        }
+                                    }}
+                                    placeholder="Project Name"
+                                    style={{ width: '100%', padding: '4px 8px', background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: '3px', fontFamily: 'inherit', fontSize: '0.8rem' }}
+                                />
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#444'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = '#333'}
+                                    onClick={() => { saveProject(projectName); setOpenMenu(null); }}
+                                >
+                                    Save Project (.json)
+                                </button>
 
-                        <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
+                                <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
+                            </>
+                        )}
 
                         <div style={{ fontSize: '0.75rem', color: '#888', padding: '0 4px' }}>Target Layer:</div>
                         <select
                             value={layerExportMode}
-                            onChange={(e) => setLayerExportMode(e.target.value as any)}
+                            onChange={(e) => setLayerExportMode(e.target.value as LayerExportMode)}
                             style={{ width: '100%', padding: '4px', background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: '3px', marginBottom: '4px' }}
                         >
                             <option value="merged">Merged Image</option>
@@ -263,22 +286,26 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
                                 </button>
                             </>
                         )}
-                        <button
-                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
-                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                            onClick={() => { exportSpriteSheet(projectName, layerExportMode); setOpenMenu(null); }}
-                        >
-                            Export Sheet (.png)
-                        </button>
-                        <button
-                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
-                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                            onClick={() => { exportGIF(projectName, layerExportMode); setOpenMenu(null); }}
-                        >
-                            Export Animation (.gif)
-                        </button>
+                        {selectedSpriteIds.size === 0 && (
+                            <>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => { exportSpriteSheet(projectName, layerExportMode); setOpenMenu(null); }}
+                                >
+                                    Export Sheet (.png)
+                                </button>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => { exportGIF(projectName, layerExportMode); setOpenMenu(null); }}
+                                >
+                                    Export Animation (.gif)
+                                </button>
+                            </>
+                        )}
                     </div>
                 )}
             </div>
@@ -304,9 +331,7 @@ export const Timeline: React.FC = () => {
         fps,
         setFps,
         activeLayer,
-        isOverlayStacked,
-        projectName,
-        setProjectName
+        isOverlayStacked
     } = useEditor();
 
     const getCompositePixelData = React.useCallback((sprite: { pixelData: (string | null)[]; overlayPixelData: (string | null)[] }) => {
@@ -316,6 +341,7 @@ export const Timeline: React.FC = () => {
     // Selection Mode State
     const [isSelectionMode, setIsSelectionMode] = React.useState(false);
     const [selectedSpriteIds, setSelectedSpriteIds] = React.useState<Set<number>>(new Set());
+    const [currentBatch, setCurrentBatch] = React.useState(0);
 
     // Long Press / Paint Selection State
     const [isPaintSelecting, setIsPaintSelecting] = React.useState(false);
@@ -335,7 +361,7 @@ export const Timeline: React.FC = () => {
         return activeLayer === 'base' ? sprite.pixelData : sprite.overlayPixelData;
     }, [activeLayer, getCompositePixelData, isOverlayStacked, isPaintSelecting, isSelectionMode, isFramePointerDown]);
 
-    const handleFramePointerDown = React.useCallback((e: React.PointerEvent, _index: number, sprite: any) => {
+    const handleFramePointerDown = React.useCallback((e: React.PointerEvent, _index: number, sprite: Sprite) => {
         isPointerDownRef.current = true;
         setIsFramePointerDown(true);
         const pointerId = e.pointerId;
@@ -377,8 +403,8 @@ export const Timeline: React.FC = () => {
                 if (currentTarget instanceof Element) {
                     try {
                         currentTarget.releasePointerCapture(pointerId);
-                    } catch (err) {
-                        // Ignore errors if capture was already released
+                    } catch {
+                        // no-op
                     }
                 }
             }
@@ -419,7 +445,7 @@ export const Timeline: React.FC = () => {
         return () => window.removeEventListener('pointerup', handleWindowPointerUp);
     }, []);
 
-    const handleFramePointerEnter = React.useCallback((_e: React.PointerEvent, _index: number, sprite: any) => {
+    const handleFramePointerEnter = React.useCallback((_e: React.PointerEvent, _index: number, sprite: Sprite) => {
         if (isPaintSelecting && isPointerDownRef.current) {
             // Paint selection!
             setSelectedSpriteIds(prev => {
@@ -481,7 +507,7 @@ export const Timeline: React.FC = () => {
         return () => {
             window.removeEventListener('pointermove', handleGlobalPointerMove);
         };
-    }, [isPaintSelecting, sprites]);
+    }, [isPaintSelecting, sprites, selectedSpriteIds]);
 
     // AUTO-EXIT Selection Mode if selection becomes empty
     React.useEffect(() => {
@@ -490,8 +516,23 @@ export const Timeline: React.FC = () => {
         }
     }, [isSelectionMode, selectedSpriteIds.size]);
 
+    // Cancel selection when clicking outside the timeline
+    React.useEffect(() => {
+        if (selectedSpriteIds.size === 0) return;
+
+        const handleClickOutside = (e: MouseEvent) => {
+            if (timelineRef.current && !timelineRef.current.contains(e.target as Node)) {
+                setSelectedSpriteIds(new Set());
+                setIsSelectionMode(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [selectedSpriteIds.size]);
+
     // Stable handler for frame clicks to prevent re-renders
-    const handleFrameMouseDown = React.useCallback((_e: React.MouseEvent, index: number, sprite: any) => {
+    const handleFrameMouseDown = React.useCallback((_e: React.MouseEvent, index: number, sprite: Sprite) => {
         // We no longer block mousedown in selection mode.
         // This allows dnd-kit to pick up the drag for moving groups.
         // Toggling still happens on handleFrameClick.
@@ -510,7 +551,7 @@ export const Timeline: React.FC = () => {
 
     const wasPaintSelectingRef = React.useRef(false);
 
-    const handleFrameClick = React.useCallback((_e: React.MouseEvent, _index: number, sprite: any) => {
+    const handleFrameClick = React.useCallback((_e: React.MouseEvent, _index: number, sprite: Sprite) => {
         if (wasPaintSelectingRef.current) {
             // Prevent click processing if we just finished a paint selection
             return;
@@ -530,7 +571,7 @@ export const Timeline: React.FC = () => {
         }
     }, [isSelectionMode]);
 
-    const handleBulkDelete = () => {
+    const handleBulkDelete = React.useCallback(() => {
         if (selectedSpriteIds.size === 0) return;
 
         // Convert Set to Array for processing
@@ -545,8 +586,7 @@ export const Timeline: React.FC = () => {
         });
 
         setSelectedSpriteIds(new Set());
-        setPendingDeleteId(null);
-    };
+    }, [selectedSpriteIds, deleteSprite]);
 
     const handleBulkDuplicate = React.useCallback(() => {
         const sortedSelected = sprites
@@ -581,20 +621,6 @@ export const Timeline: React.FC = () => {
         duplicateSprite();
     }, [setIsPlaying, duplicateSprite]);
 
-    // const fileInputRef = React.useRef<HTMLInputElement>(null); // This is now part of ImportExportMenu
-
-    // The following export/import functions are now handled by ImportExportMenu
-    // const handleExportPNG = () => { ... };
-    // const handleExportJSON = () => { ... };
-    // const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => { ... };
-
-    const [pendingDeleteId, setPendingDeleteId] = React.useState<number | null>(null);
-
-    // If active frame changes, cancel pending delete to be safe
-    React.useEffect(() => {
-        setPendingDeleteId(null);
-    }, [activeSpriteId]);
-
     const spritesRef = React.useRef(sprites);
     const activeSpriteIdRef = React.useRef(activeSpriteId);
     const timelineRef = React.useRef<HTMLDivElement>(null);
@@ -606,7 +632,6 @@ export const Timeline: React.FC = () => {
         activeSpriteIdRef.current = activeSpriteId;
     }, [sprites, activeSpriteId]);
 
-    const [currentBatch, setCurrentBatch] = React.useState(0);
     const BATCH_SIZE = 8;
     const handleTimelineWheel = React.useCallback((e: React.WheelEvent<HTMLDivElement>) => {
         const container = timelineContainerRef.current;
@@ -630,10 +655,6 @@ export const Timeline: React.FC = () => {
 
             if (isInput) return;
 
-            // Navigation shortcuts moved to useKeyboardShortcuts
-            // if (e.key === ',' || e.key === '<') { ... }
-            // if (e.key === '.' || e.key === '>') { ... }
-            // Duplicate Shortcuts (Global Context but dependent on Timeline Selection)
             const isCmd = e.metaKey || e.ctrlKey;
             const isShift = e.shiftKey;
 
@@ -662,15 +683,13 @@ export const Timeline: React.FC = () => {
                 }
             }
 
-            // Bulk Delete (Shift+Delete)
+            // Shift+Delete: Bulk delete selected, or delete active frame
             if (isShift && (e.code === 'Delete' || e.code === 'Backspace')) {
                 e.preventDefault();
-                // If selection exists, bulk delete
                 if (selectedSpriteIds.size > 0) {
                     handleBulkDelete();
                 } else {
-                    // Just delete active (fallback handled by button normally, but shortcut useful)
-                    deleteSprite(activeSpriteIdRef.current);
+                    deleteSprite();
                 }
             }
 
@@ -703,7 +722,7 @@ export const Timeline: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [setActiveSpriteId, currentBatch, selectedSpriteIds, duplicateSprite, handleBulkDuplicate]);
+    }, [setActiveSpriteId, currentBatch, selectedSpriteIds, duplicateSprite, handleBulkDuplicate, handleBulkDelete]);
 
     // Auto-scroll to active sprite
     const prevActiveIdRef = React.useRef(activeSpriteId);
@@ -820,7 +839,7 @@ export const Timeline: React.FC = () => {
             }
         }
         prevActiveIdRef.current = activeSpriteId;
-    }, [activeSpriteId, isPlaying, sprites.length, activeDragId, isDragCoolingDown, isPointerDownRef]);
+    }, [activeSpriteId, isPlaying, sprites, activeDragId, isDragCoolingDown]);
 
     React.useEffect(() => {
         // Don't auto-switch batch while dragging or cooling down
@@ -834,8 +853,8 @@ export const Timeline: React.FC = () => {
     }, [activeSpriteId, sprites, currentBatch, BATCH_SIZE, activeDragId, isDragCoolingDown]);
 
     // FPS Rapid Adjustment
-    const fpsIntervalRef = React.useRef<any>(null);
-    const fpsTimeoutRef = React.useRef<any>(null);
+    const fpsIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+    const fpsTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const stopFpsChange = React.useCallback(() => {
         if (fpsIntervalRef.current) {
@@ -861,91 +880,75 @@ export const Timeline: React.FC = () => {
         <div ref={timelineRef} className="timeline-section">
             <div className="timeline-header">
                 <div className="timeline-controls-left">
-                    <button
-                        className={`control-btn-small ${isPlaying ? 'active' : ''}`}
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        style={{ marginLeft: '12px' }}
-                    >
-                        {isPlaying ? 'Stop' : 'Play'}
-                    </button>
-                    <button
-                        className={`control-btn-small ${isOnionSkinning ? 'active' : ''}`}
-                        onClick={() => setIsOnionSkinning(!isOnionSkinning)}
-                    >
-                        Onion
-                    </button>
-
-                    {/* Selection Controls - Only show 'Done' when in mode */}
-                    {isSelectionMode && (
+                    {selectedSpriteIds.size === 0 && (
                         <button
-                            className={`control-btn-small active`}
-                            onClick={() => {
-                                setIsSelectionMode(false);
-                                setSelectedSpriteIds(new Set()); // Clear on exit
-                            }}
-                            style={{ marginLeft: '8px' }}
+                            className={`control-btn-small ${isPlaying ? 'active' : ''}`}
+                            onClick={() => setIsPlaying(!isPlaying)}
                         >
-                            Done
+                            {isPlaying ? 'Stop' : 'Play'}
                         </button>
                     )}
-
-                    {isSelectionMode && selectedSpriteIds.size > 0 ? (
-                        <button
-                            className="control-btn-small delete-confirm"
-                            onClick={handleBulkDelete}
-                            style={{
-                                marginLeft: '8px',
-                                backgroundColor: '#ff4444',
-                                color: 'white'
-                            }}
-                        >
-                            Delete ({selectedSpriteIds.size})
-                        </button>
-                    ) : (
-                        <button
-                            className={`control-btn-small ${pendingDeleteId === activeSpriteId ? 'delete-confirm' : ''}`}
-                            onClick={() => {
-                                if (sprites.length <= 1) return;
-                                if (pendingDeleteId === activeSpriteId) {
-                                    deleteSprite(activeSpriteId);
-                                    setPendingDeleteId(null);
-                                } else {
-                                    setPendingDeleteId(activeSpriteId);
-                                }
-                            }}
-                            title="Delete Frame"
-                            style={{
-                                marginLeft: '8px',
-                                backgroundColor: pendingDeleteId === activeSpriteId ? '#ff4444' : '',
-                                color: pendingDeleteId === activeSpriteId ? 'white' : '',
-                                opacity: isSelectionMode ? 0.3 : 1,
-                                pointerEvents: isSelectionMode ? 'none' : 'auto'
-                            }}
-                            disabled={sprites.length <= 1 || isSelectionMode}
-                        >
-                            {pendingDeleteId === activeSpriteId ? 'Confirm' : 'Delete'}
-                        </button>
+                    {!isPlaying && selectedSpriteIds.size === 0 && (
+                        <>
+                            <button
+                                className={`control-btn-small ${isOnionSkinning ? 'active' : ''}`}
+                                onClick={() => setIsOnionSkinning(!isOnionSkinning)}
+                            >
+                                Onion
+                            </button>
+                            <button
+                                className="control-btn-small"
+                                onClick={() => {
+                                    setIsSelectionMode(true);
+                                    setSelectedSpriteIds(new Set([activeSpriteId]));
+                                }}
+                            >
+                                Select
+                            </button>
+                        </>
+                    )}
+                    {!isPlaying && selectedSpriteIds.size > 0 && (
+                        <>
+                            <button
+                                className="control-btn-small"
+                                onClick={() => {
+                                    setSelectedSpriteIds(new Set(sprites.map(s => s.id)));
+                                }}
+                            >
+                                Select All
+                            </button>
+                            <button
+                                className="control-btn-small"
+                                onClick={() => {
+                                    setSelectedSpriteIds(new Set());
+                                    setIsSelectionMode(false);
+                                }}
+                            >
+                                Unselect All
+                            </button>
+                            <button
+                                className="control-btn-small delete-confirm"
+                                onClick={handleBulkDelete}
+                                style={{
+                                    backgroundColor: '#ff4444',
+                                    color: 'white'
+                                }}
+                            >
+                                Delete ({selectedSpriteIds.size})
+                            </button>
+                        </>
                     )}
                 </div>
-                <div className="file-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                        type="text"
-                        className="project-name-input"
-                        value={projectName}
-                        onChange={(e) => setProjectName(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                            }
-                        }}
-                        placeholder="Project Name"
-                    />
-                    <ImportExportMenu
-                        selectedSpriteIds={selectedSpriteIds}
-                        setSelectedSpriteIds={setSelectedSpriteIds}
-                        setIsSelectionMode={setIsSelectionMode}
-                    />
-                </div>
+                {!isPlaying && (
+                    <div className="file-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <ImportExportMenu
+                            selectedSpriteIds={selectedSpriteIds}
+                            setSelectedSpriteIds={setSelectedSpriteIds}
+                            setIsSelectionMode={setIsSelectionMode}
+                            hideImport={selectedSpriteIds.size > 0}
+                        />
+                    </div>
+                )}
             </div>
 
             <DndContext
@@ -1020,7 +1023,7 @@ export const Timeline: React.FC = () => {
                                         onPointerDown={handleFramePointerDown}
                                         onPointerUp={handleFramePointerUp}
                                         onPointerEnter={handleFramePointerEnter}
-                                        isDeletePending={pendingDeleteId === sprite.id}
+
                                         isSelected={selectedSpriteIds.has(sprite.id)}
                                         forceDragging={isMultiDrag && selectedSpriteIds.has(sprite.id)}
                                         disabled={isPaintSelecting}

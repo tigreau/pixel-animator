@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 import { PRESET_COLORS } from '../../types';
 
 export const PaletteGrid: React.FC = () => {

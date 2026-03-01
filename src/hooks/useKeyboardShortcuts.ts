@@ -1,13 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { useEditor } from '../contexts/EditorContext';
-// import { useTimelineNavigation } from './useTimelineNavigation'; // Removed unused import
+import { useEditor } from '../contexts/editorContextShared';
 
 export const useKeyboardShortcuts = () => {
     const {
         setTool,
         undo,
         redo,
-        deleteSprite,
         duplicateSprite,
         setBrushSize,
         brushSize,
@@ -200,56 +198,9 @@ export const useKeyboardShortcuts = () => {
             }
 
             // Delete Operations
-            if (e.key === 'Backspace' || e.key === 'Delete') {
-                if (isShift) {
-                    // Shift+Delete -> Delete Frame
-                    deleteSprite();
-                } else {
-                    // Delete -> Clear Content
-                    if (selectedPixels.size > 0) {
-                        // Clear Selection (Lift/Delete current float or base pixels)
-                        // Calling liftSelection with empty override effectively clears? No.
-                        // Use 'updatePixel' loop or new 'clearContext'?
-                        // Existing 'clearSelection' commits. That's not what 'Delete' does.
-                        // 'Delete' should ERASE the pixels.
-                        // We need a clear() or eraseSelection() method.
-                        // For now, let's use a specialized loop here or add a helper to context.
-                        // Since we can't easily add to context without refactoring, let's trigger 'fill' with null?
-                        // fill(index) uses currentColor.
-                        // Let's iterate selected and set to null.
-                        // Wait, we can't access setSprites here.
-                        // We can use `setTool('eraser')` and `stamp`? No.
-                        // We can use `liftSelection` to float them, then delete the float?
-                        // If we `liftSelection`, they are in floatingLayer.
-                        // Then if we `setFloatingLayer(new Map())`, they are gone?
-                        // But `clearSelection` COMMITS.
-
-                        // Workaround: We need a clear canvas/selection function in Context.
-                        // But I can't edit Context right now easily without big diffs.
-                        // Let's use `deleteSprite` for frame deletion (done).
-                        // For clearing content: If I can't do it easily, I'll fallback to `deleteSprite` for pure Delete key?
-                        // NO, user specifically asked for "Clear key".
-                        // I should add `clearCanvas` to useEditor destructuring (it exists in EditorContext!)
-
-                        // EditorContext has `clearCanvas`.
-                        if (selectedPixels.size === 0) {
-                            clearCanvas();
-                        } else {
-                            // If selection active, clear ONLY selection.
-                            // `clearCanvas` might clear everything.
-                            // We don't have `clearSelectionContent`.
-                            // Let's just clearCanvas for now if no selection, 
-                            // and maybe fail gracefully (or do nothing) for selection clear if not supported.
-                            // OR: Assume 'clearCanvas' clears everything, which matches 'Delete' on a layer in Aseprite (Deletes Cel).
-                            // If selection is present, Aseprite deletes selection.
-                            // I'll stick to `clearCanvas` (Delete Cel) behavior for now.
-                            clearCanvas(); // This might be too aggressive if they want to clear just selection.
-                        }
-                    } else {
-                        // No selection -> Clear Frame content
-                        clearCanvas();
-                    }
-                }
+            // Shift+Delete is handled by Timeline (handleBulkDelete)
+            if ((e.key === 'Backspace' || e.key === 'Delete') && !isShift) {
+                clearCanvas();
             }
         };
 
@@ -275,7 +226,6 @@ export const useKeyboardShortcuts = () => {
         setTool,
         undo,
         redo,
-        deleteSprite,
         duplicateSprite,
         setBrushSize,
         brushSize,

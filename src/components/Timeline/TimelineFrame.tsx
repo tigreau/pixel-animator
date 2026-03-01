@@ -13,7 +13,7 @@ interface TimelineFrameProps {
     onPointerEnter?: (e: React.PointerEvent, index: number, sprite: Sprite) => void;
     index: number;
     isAdd?: boolean;
-    isDeletePending?: boolean;
+
     isSelected?: boolean;
     isGhost?: boolean;
 }
@@ -29,7 +29,7 @@ export const TimelineFrame: React.FC<TimelineFrameProps> = React.memo(({
     onPointerEnter,
     index,
     isAdd,
-    isDeletePending,
+
     isSelected = false,
     isGhost = false,
 }) => {
@@ -87,7 +87,7 @@ export const TimelineFrame: React.FC<TimelineFrameProps> = React.memo(({
             className={`timeline-frame 
                 ${isActive ? 'active' : ''} 
                 ${isAdd ? 'add-new' : ''} 
-                ${isDeletePending ? 'delete-pending' : ''}
+
                 ${isSelected ? 'selected' : ''}
                 ${isGhost ? 'ghost' : ''}
             `}

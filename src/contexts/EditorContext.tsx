@@ -1,78 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { TOTAL_PIXELS, PRESET_COLORS, GRID_SIZE } from '../types';
 import type { Sprite, Tool } from '../types';
 import { decompressPixelData, saveProjectJSON, loadProjectJSON, exportSpritesToJSON } from '../utils/save';
 import { exportFrameToPNG, exportSpriteSheetToPNG, exportProjectToGIF } from '../utils/export';
 import type { LayerExportMode } from '../utils/export';
-
-type Layer = 'base' | 'top';
-
-interface EditorContextType {
-    sprites: Sprite[];
-    activeSpriteId: number;
-    activeSprite: Sprite | undefined;
-    currentColor: string | null;
-    currentTool: Tool;
-    isDrawing: boolean;
-    recentColors: string[];
-    setIsDrawing: (drawing: boolean) => void;
-    updatePixel: (pixelIndex: number, maskConstraint?: 'inside' | 'outside' | null) => void;
-    fill: (pixelIndex: number) => void;
-    selectedPixels: Set<number>;
-    setSelectedPixels: (pixels: Set<number>) => void;
-    addToSelection: (index: number) => void;
-    clearSelection: () => void;
-    liftSelection: (pixelsOverride?: Set<number>) => void;
-    floatingLayer: Map<number, string>;
-    flipSelectionHorizontal: () => void;
-    flipSelectionVertical: () => void;
-    rotateSelectionLeft: () => void;
-    rotateSelectionRight: () => void;
-    nudgeSelection: (dx: number, dy: number) => void;
-    setActiveSpriteId: (id: number) => void;
-    setCurrentColor: (color: string | null) => void;
-    setTool: (tool: Tool) => void;
-    undo: () => void;
-    redo: () => void;
-    clearCanvas: () => void;
-    addSprite: () => void;
-    duplicateSprite: () => void;
-    deleteSprite: (id?: number) => void;
-    moveSprite: (oldIndex: number, newIndex: number) => void;
-    moveSprites: (indices: number[], insertAtIndex: number) => void;
-    isPlaying: boolean;
-    setIsPlaying: (playing: boolean) => void;
-    isOnionSkinning: boolean;
-    setIsOnionSkinning: (on: boolean) => void;
-    importMultipleFromJSON: (files: { name: string; pixels: (string | null)[]; overlayPixels?: (string | null)[] }[]) => number[];
-    stamp: () => void;
-    isStamping: boolean;
-    fps: number;
-    setFps: React.Dispatch<React.SetStateAction<number>>;
-    brushSize: 1 | 2;
-    setBrushSize: (size: 1 | 2) => void;
-    addSelectionBatch: (indices: number[]) => void;
-    cancelStroke: () => void;
-    activeLayer: Layer;
-    setActiveLayer: (layer: Layer) => void;
-    isOverlayStacked: boolean;
-    setIsOverlayStacked: (stacked: boolean) => void;
-    loadProject: (file: File) => Promise<void>;
-    saveProject: (projectName: string) => void;
-    exportFrame: (projectName: string, layerMode: LayerExportMode) => void;
-    exportFrameJSON: (projectName: string, layerMode: LayerExportMode) => void;
-    exportSpriteSheet: (projectName: string, layerMode: LayerExportMode, spritesToExport?: Sprite[]) => void;
-    exportSelectedJSON: (projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => void;
-    exportSelectedPNG: (projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => void;
-    exportGIF: (projectName: string, layerMode: LayerExportMode) => void;
-    layerExportMode: LayerExportMode;
-    setLayerExportMode: (mode: LayerExportMode) => void;
-    projectName: string;
-    setProjectName: (name: string) => void;
-}
-
-const EditorContext = createContext<EditorContextType | undefined>(undefined);
+import { EditorContext } from './editorContextShared';
+import type { Layer } from './editorContextShared';
 
 export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [sprites, setSprites] = useState<Sprite[]>([
@@ -102,7 +36,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const [activeLayer, setActiveLayer] = useState<Layer>('base');
     const [isOverlayStacked, setIsOverlayStacked] = useState(true);
     const [layerExportMode, setLayerExportMode] = useState<LayerExportMode>('merged');
-    const [projectName, setProjectName] = useState<string>('my_project');
+    const [projectName, setProjectName] = useState<string>('project_name');
 
     // Helper to save history
     const saveHistory = useCallback((currentSprites: Sprite[], spriteId: number) => {
@@ -798,7 +732,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             }
             return sprite;
         }));
-    }, [activeLayer, activeSpriteId, currentTool, currentColor, selectedPixels, brushSize]);
+    }, [activeLayer, activeSpriteId, currentTool, currentColor, selectedPixels, brushSize, floatingLayerState, saveHistory]);
 
     const addSprite = useCallback(() => {
         setSprites(prev => {
@@ -863,11 +797,23 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const deleteSprite = useCallback((idToDelete?: number) => {
         setSprites(prev => {
-            if (prev.length <= 1) return prev; // Cannot delete last sprite
-
             const targetId = idToDelete ?? activeSpriteId;
             const targetIndex = prev.findIndex(s => s.id === targetId);
             if (targetIndex === -1) return prev;
+
+            // If this is the last sprite, clear it instead of deleting
+            if (prev.length <= 1) {
+                const blank = new Array(TOTAL_PIXELS).fill(null);
+                return prev.map(s => ({
+                    ...s,
+                    pixelData: [...blank],
+                    overlayPixelData: [...blank],
+                    history: [[...blank]],
+                    redoHistory: [],
+                    overlayHistory: [[...blank]],
+                    overlayRedoHistory: []
+                }));
+            }
 
             const newSprites = prev.filter(s => s.id !== targetId);
 
@@ -1103,7 +1049,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             return [];
         }
 
-        let nextSprites = [...sprites];
+        const nextSprites = [...sprites];
         const activeIndex = nextSprites.findIndex(s => s.id === activeSpriteId);
 
         // Find highest ID to generate new ones
@@ -1300,12 +1246,4 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             {children}
         </EditorContext.Provider>
     );
-};
-
-export const useEditor = () => {
-    const context = useContext(EditorContext);
-    if (!context) {
-        throw new Error('useEditor must be used within an EditorProvider');
-    }
-    return context;
 };

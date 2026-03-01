@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 import { calculateLassoSelection } from '../../utils/lasso';
 import { getLinePixels } from '../../utils/draw';
 import { MagnifyingGlass } from '../MagnifyingGlass';
@@ -15,6 +15,11 @@ interface PixelProps {
     onMouseEnter: (index: number) => void;
     onMouseUp: () => void;
 }
+
+const EMPTY_SPRITE = {
+    pixelData: new Array(GRID_SIZE * GRID_SIZE).fill(null) as (string | null)[],
+    overlayPixelData: new Array(GRID_SIZE * GRID_SIZE).fill(null) as (string | null)[]
+};
 
 const MemoizedPixel: React.FC<PixelProps> = React.memo(({
     index,
@@ -55,7 +60,6 @@ export const Editor: React.FC = () => {
         addToSelection,
         setSelectedPixels,
         clearSelection,
-        // nudgeSelection, // Removed unused
         liftSelection,
         floatingLayer,
         isPlaying,
@@ -96,7 +100,7 @@ export const Editor: React.FC = () => {
     // }, []);
 
     // Track zoom state for 1x brush
-    const [isZoomed, setIsZoomed] = React.useState(false);
+    const isZoomed = false;
     const zoomFocusRef = useRef<{ x: number, y: number } | null>(null);
 
     // Eyedropper State
@@ -126,17 +130,6 @@ export const Editor: React.FC = () => {
     const shapeHintModeRef = useRef<'line' | 'circle' | null>(null);
     const workspaceRef = useRef<HTMLDivElement>(null);
     const stackButtonRef = useRef<HTMLButtonElement>(null);
-
-    // Reset zoom when switching brushes
-    useEffect(() => {
-        if (brushSize === 2) {
-            setIsZoomed(false);
-        } else {
-            // Suggest zooming by not being zoomed yet?
-            // User requested: "clicking on 1x before it zooms in" -> Start un-zoomed.
-            setIsZoomed(false);
-        }
-    }, [brushSize]);
 
     useEffect(() => {
         if (isOverlayStacked && activeLayer !== 'top') {
@@ -314,10 +307,10 @@ export const Editor: React.FC = () => {
     // Deconstruct styles
     const { cursorStyle, faintCursorStyle, selectionCursorStyle } = styles;
 
-    const workingSprite = activeSprite ?? sprites[0] ?? {
-        pixelData: new Array(GRID_SIZE * GRID_SIZE).fill(null),
-        overlayPixelData: new Array(GRID_SIZE * GRID_SIZE).fill(null)
-    };
+    const workingSprite = React.useMemo(
+        () => activeSprite ?? sprites[0] ?? EMPTY_SPRITE,
+        [activeSprite, sprites]
+    );
     const editingLayer: 'base' | 'top' = isOverlayStacked ? 'top' : activeLayer;
     const activeLayerPixels = editingLayer === 'base' ? workingSprite.pixelData : workingSprite.overlayPixelData;
     const inactiveLayerPixels = editingLayer === 'base' ? workingSprite.overlayPixelData : workingSprite.pixelData;
@@ -1224,296 +1217,296 @@ export const Editor: React.FC = () => {
                     transformOrigin: 'center center'
                 }}
             >
-            {editingLayer === 'top' && !isOverlayStacked && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginRight: '16px', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>BASE</div>
+                {editingLayer === 'top' && !isOverlayStacked && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginRight: '16px', flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>BASE</div>
+                        <div
+                            className="main-sprite-editor layer-preview"
+                            onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('base'); }}
+                            style={{
+                                width: `${editorSize}px`,
+                                height: `${editorSize}px`,
+                                opacity: 0.68,
+                                flexShrink: 0
+                            }}
+                        >
+                            {inactiveLayerPixels.map((color, index) => (
+                                <div key={`inactive-left-${index}`} className={`pixel ${color ? 'has-color' : ''}`} style={color ? { backgroundColor: color } : undefined} />
+                            ))}
+                        </div>
+                    </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-color)' }}>
+                        {topStatusText}
+                    </div>
                     <div
-                        className="main-sprite-editor layer-preview"
-                        onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('base'); }}
+                        ref={editorContainerRef}
+                        className={`main-sprite-editor tool-${currentTool} ${selectedPixels.size > 0 ? 'has-selection' : ''} ${isPlaying ? 'playing' : ''} ${isOnionSkinning ? 'onion-on' : ''} ${isDrawing ? 'is-drawing' : ''} ${isDrawing && dragOrigin ? `drag-start-${dragOrigin}` : ''}`}
                         style={{
+                            ...cursorStyle,
+                            '--cursor-normal': cursorStyle.cursor,
+                            '--cursor-faint': faintCursorStyle,
+                            '--selection-cursor': selectionCursorStyle.cursor,
                             width: `${editorSize}px`,
                             height: `${editorSize}px`,
-                            opacity: 0.68,
-                            flexShrink: 0
-                        }}
+                            flexShrink: 0,
+                        } as React.CSSProperties & Record<'--cursor-normal' | '--cursor-faint' | '--selection-cursor', string>}
                     >
-                        {inactiveLayerPixels.map((color, index) => (
-                            <div key={`inactive-left-${index}`} className={`pixel ${color ? 'has-color' : ''}`} style={color ? { backgroundColor: color } : undefined} />
-                        ))}
-                    </div>
-                </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', flexShrink: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-color)' }}>
-                    {topStatusText}
-                </div>
-                <div
-                    ref={editorContainerRef}
-                    className={`main-sprite-editor tool-${currentTool} ${selectedPixels.size > 0 ? 'has-selection' : ''} ${isPlaying ? 'playing' : ''} ${isOnionSkinning ? 'onion-on' : ''} ${isDrawing ? 'is-drawing' : ''} ${isDrawing && dragOrigin ? `drag-start-${dragOrigin}` : ''}`}
-                    style={{
-                        ...cursorStyle,
-                        '--cursor-normal': cursorStyle.cursor,
-                        '--cursor-faint': faintCursorStyle,
-                        '--selection-cursor': selectionCursorStyle.cursor,
-                        width: `${editorSize}px`,
-                        height: `${editorSize}px`,
-                        flexShrink: 0,
-                    } as any}
-                >
-                {/* Highlight Overlay - Rendered First or Last? Last to be on top of pixels but below cursor */}
-                <div
-                    ref={highlightRef}
-                    className="pixel-highlight-guides"
-                    style={{
-                        position: 'absolute',
-                        border: '1px solid rgba(255, 255, 255, 0.4)',
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        pointerEvents: 'none',
-                        display: 'none', // Hidden until mouse enter
-                        zIndex: 20, // Above pixels (z1), above onion (z10)?
-                        boxSizing: 'border-box'
-                    }}
-                />
+                        {/* Highlight Overlay - Rendered First or Last? Last to be on top of pixels but below cursor */}
+                        <div
+                            ref={highlightRef}
+                            className="pixel-highlight-guides"
+                            style={{
+                                position: 'absolute',
+                                border: '1px solid rgba(255, 255, 255, 0.4)',
+                                background: 'rgba(255, 255, 255, 0.1)',
+                                pointerEvents: 'none',
+                                display: 'none', // Hidden until mouse enter
+                                zIndex: 20, // Above pixels (z1), above onion (z10)?
+                                boxSizing: 'border-box'
+                            }}
+                        />
 
-                {dropperHoldOverlay && !isEyedropperActive && (
-                    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 22 }}>
-                        {dropperHoldOverlay.kind === 'cells' && dropperHoldOverlay.indices.map((idx) => (
-                            <div
-                                key={`dropper-hold-${idx}`}
-                                style={{
-                                    position: 'absolute',
-                                    left: `${(idx % GRID_SIZE) * (100 / GRID_SIZE)}%`,
-                                    top: `${Math.floor(idx / GRID_SIZE) * (100 / GRID_SIZE)}%`,
-                                    width: `${100 / GRID_SIZE}%`,
-                                    height: `${100 / GRID_SIZE}%`,
-                                    overflow: 'hidden'
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        left: 0,
-                                        right: 0,
-                                        top: 0,
-                                        height: `${dropperHoldOverlay.progress * 100}%`,
-                                        background: dropperHoldOverlay.baseColors[idx] ?? 'var(--grid-bg)',
-                                        transition: `height ${EYEDROPPER_HOLD_MS}ms linear`
-                                    }}
-                                />
+                        {dropperHoldOverlay && !isEyedropperActive && (
+                            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 22 }}>
+                                {dropperHoldOverlay.kind === 'cells' && dropperHoldOverlay.indices.map((idx) => (
+                                    <div
+                                        key={`dropper-hold-${idx}`}
+                                        style={{
+                                            position: 'absolute',
+                                            left: `${(idx % GRID_SIZE) * (100 / GRID_SIZE)}%`,
+                                            top: `${Math.floor(idx / GRID_SIZE) * (100 / GRID_SIZE)}%`,
+                                            width: `${100 / GRID_SIZE}%`,
+                                            height: `${100 / GRID_SIZE}%`,
+                                            overflow: 'hidden'
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                right: 0,
+                                                top: 0,
+                                                height: `${dropperHoldOverlay.progress * 100}%`,
+                                                background: dropperHoldOverlay.baseColors[idx] ?? 'var(--grid-bg)',
+                                                transition: `height ${EYEDROPPER_HOLD_MS}ms linear`
+                                            }}
+                                        />
+                                    </div>
+                                ))}
+                                {dropperHoldOverlay.kind === 'block' && (
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            left: `${dropperHoldOverlay.x * (100 / GRID_SIZE)}%`,
+                                            top: `${dropperHoldOverlay.y * (100 / GRID_SIZE)}%`,
+                                            width: `${dropperHoldOverlay.w * (100 / GRID_SIZE)}%`,
+                                            height: `${dropperHoldOverlay.h * (100 / GRID_SIZE)}%`,
+                                            overflow: 'hidden'
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                right: 0,
+                                                top: 0,
+                                                height: `${dropperHoldOverlay.progress * 100}%`,
+                                                background: dropperHoldOverlay.baseColor ?? 'var(--grid-bg)',
+                                                transition: `height ${EYEDROPPER_HOLD_MS}ms linear`
+                                            }}
+                                        />
+                                    </div>
+                                )}
                             </div>
-                        ))}
-                        {dropperHoldOverlay.kind === 'block' && (
-                            <div
+                        )}
+
+                        {isPlaying && (
+                            <canvas
+                                ref={canvasRef}
+                                width={32}
+                                height={32}
+                                className="playback-canvas"
                                 style={{
                                     position: 'absolute',
-                                    left: `${dropperHoldOverlay.x * (100 / GRID_SIZE)}%`,
-                                    top: `${dropperHoldOverlay.y * (100 / GRID_SIZE)}%`,
-                                    width: `${dropperHoldOverlay.w * (100 / GRID_SIZE)}%`,
-                                    height: `${dropperHoldOverlay.h * (100 / GRID_SIZE)}%`,
-                                    overflow: 'hidden'
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    imageRendering: 'pixelated',
+                                    zIndex: 50, // Above everything
+                                    pointerEvents: 'none'
                                 }}
-                            >
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        left: 0,
-                                        right: 0,
-                                        top: 0,
-                                        height: `${dropperHoldOverlay.progress * 100}%`,
-                                        background: dropperHoldOverlay.baseColor ?? 'var(--grid-bg)',
-                                        transition: `height ${EYEDROPPER_HOLD_MS}ms linear`
-                                    }}
+                            />
+                        )}
+
+                        {/* Main Sprite Layer */}
+                        {!isPlaying && displayPixels.map((baseColor, index) => {
+                            const color = floatingLayer.has(index) ? floatingLayer.get(index)! : baseColor;
+                            const isFloating = floatingLayer.has(index);
+                            return (
+                                <MemoizedPixel
+                                    key={index}
+                                    index={index}
+                                    color={color}
+                                    isSelected={selectedPixels.has(index)}
+                                    isFloating={isFloating}
+                                    isStamping={isStamping}
+                                    onMouseDown={handleMouseDown}
+                                    onMouseEnter={handleMouseEnter}
+                                    onMouseUp={handleMouseUp}
                                 />
+                            );
+                        })}
+
+                        {/* Onion Skin Layer (Rendered after for overlay effect) */}
+                        {isOnionSkinning && !isPlaying && prevSprite && (
+                            <div className="onion-skin-layer" style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
+                                gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
+                                gap: '1px',
+                                padding: '2px',
+                                pointerEvents: 'none',
+                                opacity: 0.25,
+                                zIndex: 10
+                            }}>
+                                {prevSprite.pixelData.map((baseColor, index) => {
+                                    const color = isOverlayStacked
+                                        ? (prevSprite.overlayPixelData[index] ?? baseColor)
+                                        : (editingLayer === 'base' ? baseColor : prevSprite.overlayPixelData[index]);
+                                    return (
+                                        <div
+                                            key={`onion-${index}`}
+                                            className="pixel-onion"
+                                            style={color ? { backgroundColor: color, border: 'none' } : { border: 'none' }}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {linePreviewPixels.length > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
+                                gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
+                                gap: '1px',
+                                padding: '2px',
+                                pointerEvents: 'none',
+                                zIndex: 40
+                            }}>
+                                {activeLayerPixels.map((_, index) => {
+                                    const isPreviewPixel = linePreviewSet.has(index);
+                                    if (!isPreviewPixel) return <div key={`line-preview-${index}`} />;
+
+                                    if (currentTool === 'eraser') {
+                                        return (
+                                            <div
+                                                key={`line-preview-${index}`}
+                                                style={{
+                                                    border: '1px solid #ff3333',
+                                                    background: 'rgba(255, 51, 51, 0.15)'
+                                                }}
+                                            />
+                                        );
+                                    }
+
+                                    return (
+                                        <div
+                                            key={`line-preview-${index}`}
+                                            style={{
+                                                background: currentColor || 'transparent',
+                                                opacity: 0.7
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {circlePreviewPixels.length > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
+                                gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
+                                gap: '1px',
+                                padding: '2px',
+                                pointerEvents: 'none',
+                                zIndex: 41
+                            }}>
+                                {activeLayerPixels.map((_, index) => {
+                                    const isPreviewPixel = circlePreviewSet.has(index);
+                                    if (!isPreviewPixel) return <div key={`circle-preview-${index}`} />;
+
+                                    if (currentTool === 'eraser') {
+                                        return (
+                                            <div
+                                                key={`circle-preview-${index}`}
+                                                style={{
+                                                    border: '1px solid #ff3333',
+                                                    background: 'rgba(255, 51, 51, 0.15)'
+                                                }}
+                                            />
+                                        );
+                                    }
+
+                                    return (
+                                        <div
+                                            key={`circle-preview-${index}`}
+                                            style={{
+                                                background: currentColor || 'transparent',
+                                                opacity: 0.7
+                                            }}
+                                        />
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
-                )}
-
-                {isPlaying && (
-                    <canvas
-                        ref={canvasRef}
-                        width={32}
-                        height={32}
-                        className="playback-canvas"
+                    <button
+                        ref={stackButtonRef}
+                        className="secondary-btn-small"
+                        onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setIsOverlayStacked(!isOverlayStacked);
+                        }}
                         style={{
                             position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            width: '100%',
-                            height: '100%',
-                            imageRendering: 'pixelated',
-                            zIndex: 50, // Above everything
-                            pointerEvents: 'none'
-                        }}
-                    />
-                )}
-
-                {/* Main Sprite Layer */}
-                {!isPlaying && displayPixels.map((baseColor, index) => {
-                    const color = floatingLayer.has(index) ? floatingLayer.get(index)! : baseColor;
-                    const isFloating = floatingLayer.has(index);
-                    return (
-                        <MemoizedPixel
-                            key={index}
-                            index={index}
-                            color={color}
-                            isSelected={selectedPixels.has(index)}
-                            isFloating={isFloating}
-                            isStamping={isStamping}
-                            onMouseDown={handleMouseDown}
-                            onMouseEnter={handleMouseEnter}
-                            onMouseUp={handleMouseUp}
-                        />
-                    );
-                })}
-
-                {/* Onion Skin Layer (Rendered after for overlay effect) */}
-                {isOnionSkinning && !isPlaying && prevSprite && (
-                    <div className="onion-skin-layer" style={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
-                        gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
-                        gap: '1px',
-                        padding: '2px',
-                        pointerEvents: 'none',
-                        opacity: 0.25,
-                        zIndex: 10
-                    }}>
-                        {prevSprite.pixelData.map((baseColor, index) => {
-                            const color = isOverlayStacked
-                                ? (prevSprite.overlayPixelData[index] ?? baseColor)
-                                : (editingLayer === 'base' ? baseColor : prevSprite.overlayPixelData[index]);
-                            return (
-                            <div
-                                key={`onion-${index}`}
-                                className="pixel-onion"
-                                style={color ? { backgroundColor: color, border: 'none' } : { border: 'none' }}
-                            />
-                            );
-                        })}
-                    </div>
-                )}
-
-                {linePreviewPixels.length > 0 && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
-                        gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
-                        gap: '1px',
-                        padding: '2px',
-                        pointerEvents: 'none',
-                        zIndex: 40
-                    }}>
-                        {activeLayerPixels.map((_, index) => {
-                            const isPreviewPixel = linePreviewSet.has(index);
-                            if (!isPreviewPixel) return <div key={`line-preview-${index}`} />;
-
-                            if (currentTool === 'eraser') {
-                                return (
-                                    <div
-                                        key={`line-preview-${index}`}
-                                        style={{
-                                            border: '1px solid #ff3333',
-                                            background: 'rgba(255, 51, 51, 0.15)'
-                                        }}
-                                    />
-                                );
-                            }
-
-                            return (
-                                <div
-                                    key={`line-preview-${index}`}
-                                    style={{
-                                        background: currentColor || 'transparent',
-                                        opacity: 0.7
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
-                )}
-
-                {circlePreviewPixels.length > 0 && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(var(--grid-size), 1fr)',
-                        gridTemplateRows: 'repeat(var(--grid-size), 1fr)',
-                        gap: '1px',
-                        padding: '2px',
-                        pointerEvents: 'none',
-                        zIndex: 41
-                    }}>
-                        {activeLayerPixels.map((_, index) => {
-                            const isPreviewPixel = circlePreviewSet.has(index);
-                            if (!isPreviewPixel) return <div key={`circle-preview-${index}`} />;
-
-                            if (currentTool === 'eraser') {
-                                return (
-                                    <div
-                                        key={`circle-preview-${index}`}
-                                        style={{
-                                            border: '1px solid #ff3333',
-                                            background: 'rgba(255, 51, 51, 0.15)'
-                                        }}
-                                    />
-                                );
-                            }
-
-                            return (
-                                <div
-                                    key={`circle-preview-${index}`}
-                                    style={{
-                                        background: currentColor || 'transparent',
-                                        opacity: 0.7
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
-                )}
-                </div>
-                <button
-                    ref={stackButtonRef}
-                    className="secondary-btn-small"
-                    onMouseDown={(e) => {
-                        e.stopPropagation();
-                        setIsOverlayStacked(!isOverlayStacked);
-                    }}
-                    style={{
-                        position: 'absolute',
-                        top: 'calc(100% + 8px)',
-                        left: '50%',
-                        transform: 'translateX(-50%)'
-                    }}
-                >
-                    {isOverlayStacked ? 'Unstack Layers' : 'Stack Layers'}
-                </button>
-            </div>
-            {editingLayer === 'base' && !isOverlayStacked && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>TOP</div>
-                    <div
-                        className="main-sprite-editor layer-preview"
-                        onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('top'); }}
-                        style={{
-                            width: `${editorSize}px`,
-                            height: `${editorSize}px`,
-                            opacity: 0.68,
-                            flexShrink: 0
+                            top: 'calc(100% + 8px)',
+                            left: '50%',
+                            transform: 'translateX(-50%)'
                         }}
                     >
-                        {inactiveLayerPixels.map((color, index) => (
-                            <div key={`inactive-right-${index}`} className={`pixel ${color ? 'has-color' : ''}`} style={color ? { backgroundColor: color } : undefined} />
-                        ))}
-                    </div>
+                        {isOverlayStacked ? 'Unstack Layers' : 'Stack Layers'}
+                    </button>
                 </div>
-            )}
+                {editingLayer === 'base' && !isOverlayStacked && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>TOP</div>
+                        <div
+                            className="main-sprite-editor layer-preview"
+                            onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('top'); }}
+                            style={{
+                                width: `${editorSize}px`,
+                                height: `${editorSize}px`,
+                                opacity: 0.68,
+                                flexShrink: 0
+                            }}
+                        >
+                            {inactiveLayerPixels.map((color, index) => (
+                                <div key={`inactive-right-${index}`} className={`pixel ${color ? 'has-color' : ''}`} style={color ? { backgroundColor: color } : undefined} />
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

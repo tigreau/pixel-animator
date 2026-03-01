@@ -9,7 +9,7 @@ interface SortableFrameProps {
     sprite: Sprite;
     index: number;
     isActive: boolean;
-    isDeletePending?: boolean;
+
     isSelected?: boolean;
     forceDragging?: boolean;
     onMouseDown: (e: React.MouseEvent, index: number, sprite: Sprite) => void;
@@ -26,7 +26,7 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
     sprite,
     index,
     isActive,
-    isDeletePending,
+
     isSelected,
     forceDragging,
     onMouseDown,
@@ -73,7 +73,7 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
                 previewPixels={previewPixels}
                 index={index}
                 isActive={isActive}
-                isDeletePending={isDeletePending}
+
                 isSelected={isSelected}
                 onMouseDown={onMouseDown}
                 onClick={onClick}
@@ -82,25 +82,7 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
                 onPointerEnter={onPointerEnter}
             // Native handlers not needed
             />
-            {isDeletePending && (
-                <div className="delete-overlay" style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontWeight: 'bold',
-                    fontSize: '0.8rem',
-                    pointerEvents: 'none',
-                    zIndex: 999
-                }}>
-                    <span>Delete?</span>
-                </div>
-            )}
+
         </div>
     );
 };

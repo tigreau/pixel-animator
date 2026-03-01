@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 import { RecentColors } from './RecentColors';
 import { PaletteGrid } from './PaletteGrid';
 import { SelectionTools } from './SelectionTools';

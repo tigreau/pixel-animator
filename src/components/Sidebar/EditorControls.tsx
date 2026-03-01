@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 
 export const EditorControls: React.FC = () => {
     const {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEditor } from '../../contexts/EditorContext';
+import { useEditor } from '../../contexts/editorContextShared';
 
 export const SelectionTools: React.FC = () => {
     const {
@@ -10,18 +10,6 @@ export const SelectionTools: React.FC = () => {
         stamp,
         isStamping
     } = useEditor();
-
-    // Stamp Shortcut REMOVED (Moved to Global Hook)
-    // React.useEffect(() => {
-    //     const handleKeyDown = (e: KeyboardEvent) => {
-    //         if (e.code === 'Space') {
-    //             e.preventDefault();
-    //             stamp();
-    //         }
-    //     };
-    //     window.addEventListener('keydown', handleKeyDown);
-    //     return () => window.removeEventListener('keydown', handleKeyDown);
-    // }, [stamp]);
 
     return (
         <div className="palette-section">
