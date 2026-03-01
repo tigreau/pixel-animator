@@ -1074,6 +1074,31 @@ body {
     color: var(--text-color);
 }
 
+.project-name-input {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-color);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: inherit;
+    width: 150px;
+    outline: none;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.project-name-input:focus {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.project-name-input:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
 .timeline-add-btn {
     width: 24px;
     /* Slightly smaller to match */

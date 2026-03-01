@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { ReactNode } from 'react';
 import { TOTAL_PIXELS, PRESET_COLORS, GRID_SIZE } from '../types';
 import type { Sprite, Tool } from '../types';
+import { decompressPixelData, saveProjectJSON, loadProjectJSON, exportSpritesToJSON } from '../utils/save';
+import { exportFrameToPNG, exportSpriteSheetToPNG, exportProjectToGIF } from '../utils/export';
+import type { LayerExportMode } from '../utils/export';
 
 type Layer = 'base' | 'top';
 
@@ -55,6 +58,18 @@ interface EditorContextType {
     setActiveLayer: (layer: Layer) => void;
     isOverlayStacked: boolean;
     setIsOverlayStacked: (stacked: boolean) => void;
+    loadProject: (file: File) => Promise<void>;
+    saveProject: (projectName: string) => void;
+    exportFrame: (projectName: string, layerMode: LayerExportMode) => void;
+    exportFrameJSON: (projectName: string, layerMode: LayerExportMode) => void;
+    exportSpriteSheet: (projectName: string, layerMode: LayerExportMode, spritesToExport?: Sprite[]) => void;
+    exportSelectedJSON: (projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => void;
+    exportSelectedPNG: (projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => void;
+    exportGIF: (projectName: string, layerMode: LayerExportMode) => void;
+    layerExportMode: LayerExportMode;
+    setLayerExportMode: (mode: LayerExportMode) => void;
+    projectName: string;
+    setProjectName: (name: string) => void;
 }
 
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
@@ -86,6 +101,8 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const [brushSize, setBrushSize] = useState<1 | 2>(2);
     const [activeLayer, setActiveLayer] = useState<Layer>('base');
     const [isOverlayStacked, setIsOverlayStacked] = useState(true);
+    const [layerExportMode, setLayerExportMode] = useState<LayerExportMode>('merged');
+    const [projectName, setProjectName] = useState<string>('my_project');
 
     // Helper to save history
     const saveHistory = useCallback((currentSprites: Sprite[], spriteId: number) => {
@@ -1080,65 +1097,124 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }
     }, [currentTool]);
 
-    const isSpriteBlank = (sprite: Sprite) => {
-        return sprite.pixelData.every(p => p === null) && sprite.overlayPixelData.every(p => p === null);
-    };
-
     const importMultipleFromJSON = useCallback((files: { name: string; pixels: (string | null)[]; overlayPixels?: (string | null)[] }[]) => {
-        let nextSprites = [...sprites];
-        let currentActiveId = activeSpriteId;
-        const newIds: number[] = [];
-
-        let reachedLimit = false;
-
-        files.forEach((file, index) => {
-            if (nextSprites.length >= 64) {
-                reachedLimit = true;
-                return;
-            }
-
-            const activeIndex = nextSprites.findIndex(s => s.id === currentActiveId);
-            const activeSprite = nextSprites[activeIndex];
-
-            if (index === 0 && activeSprite && isSpriteBlank(activeSprite)) {
-                // REPLACE: ONLY if first file AND current active frame is blank
-                nextSprites[activeIndex] = {
-                    ...activeSprite,
-                    pixelData: [...file.pixels],
-                    overlayPixelData: file.overlayPixels ? [...file.overlayPixels] : new Array(TOTAL_PIXELS).fill(null),
-                    redoHistory: [],
-                    overlayRedoHistory: []
-                };
-                // Make this replacement undoable immediately
-                nextSprites = saveHistory(nextSprites, activeSprite.id);
-                newIds.push(activeSprite.id);
-            } else {
-                // ADD NEW: For subsequent files or if current wasn't blank
-                const newId = Math.max(...nextSprites.map(s => s.id), -1) + 1;
-                const newSprite: Sprite = {
-                    id: newId,
-                    name: `Sprite ${nextSprites.length}`,
-                    pixelData: [...file.pixels],
-                    overlayPixelData: file.overlayPixels ? [...file.overlayPixels] : new Array(TOTAL_PIXELS).fill(null),
-                    history: [[...file.pixels]],
-                    redoHistory: [],
-                    overlayHistory: [file.overlayPixels ? [...file.overlayPixels] : new Array(TOTAL_PIXELS).fill(null)],
-                    overlayRedoHistory: []
-                };
-                // Always append to the end
-                nextSprites.push(newSprite);
-                currentActiveId = newId;
-                newIds.push(newId);
-            }
-        });
-
-        if (reachedLimit) {
-            alert('Frame limit reached (64). Some files were not imported.');
+        if (sprites.length + files.length > 64) {
+            alert('Cannot import: exceeds maximum limit of 64 frames.');
+            return [];
         }
 
-        setSprites(nextSprites);
-        return newIds;
-    }, [activeSpriteId, saveHistory, sprites]);
+        let nextSprites = [...sprites];
+        const activeIndex = nextSprites.findIndex(s => s.id === activeSpriteId);
+
+        // Find highest ID to generate new ones
+        let maxId = Math.max(...nextSprites.map(s => s.id), -1);
+
+        const newSprites = files.map(file => {
+            maxId++;
+            return {
+                id: maxId,
+                name: file.name || `Imported Frame`,
+                pixelData: [...file.pixels],
+                overlayPixelData: file.overlayPixels ? [...file.overlayPixels] : new Array(TOTAL_PIXELS).fill(null),
+                history: [[...file.pixels]],
+                redoHistory: [],
+                overlayHistory: [file.overlayPixels ? [...file.pixels] : new Array(TOTAL_PIXELS).fill(null)],
+                overlayRedoHistory: []
+            };
+        });
+
+        // Splice newly imported frames directly after the active frame
+        const insertIndex = activeIndex >= 0 ? activeIndex + 1 : nextSprites.length;
+        nextSprites.splice(insertIndex, 0, ...newSprites);
+
+        // Update the sprites via saveHistory so it's undoable
+        // Focus the first newly imported frame
+        const firstNewId = newSprites[0].id;
+        const updatedSprites = saveHistory(nextSprites, firstNewId);
+        setSprites(updatedSprites);
+        setActiveSpriteId(firstNewId);
+        return newSprites.map(s => s.id);
+    }, [sprites, activeSpriteId, saveHistory]);
+
+    const saveProject = useCallback((projectName: string) => {
+        saveProjectJSON(projectName, sprites, fps, PRESET_COLORS, GRID_SIZE);
+    }, [sprites, fps]);
+
+    const exportFrame = useCallback((projectName: string, layerMode: LayerExportMode) => {
+        if (!activeSprite) return;
+        const index = sprites.findIndex(s => s.id === activeSprite.id);
+        exportFrameToPNG(projectName, activeSprite, index, GRID_SIZE, 10, layerMode);
+    }, [activeSprite, sprites]);
+
+    const exportFrameJSON = useCallback((projectName: string, layerMode: LayerExportMode) => {
+        if (!activeSprite) return;
+        const index = sprites.findIndex(s => s.id === activeSprite.id);
+        exportSpritesToJSON(projectName, [activeSprite], layerMode, index);
+    }, [activeSprite, sprites]);
+
+    const exportSpriteSheet = useCallback((projectName: string, layerMode: LayerExportMode, spritesToExport?: Sprite[]) => {
+        exportSpriteSheetToPNG(projectName, spritesToExport || sprites, GRID_SIZE, 10, layerMode);
+    }, [sprites]);
+
+    const exportSelectedJSON = useCallback((projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => {
+        spritesToExport.forEach(sprite => {
+            const index = sprites.findIndex(s => s.id === sprite.id);
+            exportSpritesToJSON(projectName, [sprite], layerMode, index);
+        });
+    }, [sprites]);
+
+    const exportSelectedPNG = useCallback((projectName: string, layerMode: LayerExportMode, spritesToExport: Sprite[]) => {
+        spritesToExport.forEach((sprite) => {
+            const index = sprites.findIndex(s => s.id === sprite.id);
+            exportFrameToPNG(projectName, sprite, index, GRID_SIZE, 10, layerMode);
+        });
+    }, [sprites]);
+
+    const exportGIF = useCallback((projectName: string, layerMode: LayerExportMode) => {
+        exportProjectToGIF(projectName, sprites, fps, GRID_SIZE, 20, layerMode);
+    }, [sprites, fps]);
+
+    const loadProject = useCallback(async (file: File) => {
+        try {
+            const projectData = await loadProjectJSON(file);
+
+            // Stop playing if it is
+            setIsPlaying(false);
+
+            // Update Name and FPS
+            setProjectName(projectData.name || 'my_project');
+            setFps(projectData.fps || 8);
+
+            // Reconstruct Sprites
+            const newSprites: Sprite[] = projectData.frames.map(frame => {
+                const pixelData = decompressPixelData(frame.pixelData, projectData.palette);
+                // overlayPixelData was added recently, handle older files without it
+                const overlayPixelData = frame.overlayPixelData
+                    ? decompressPixelData(frame.overlayPixelData, projectData.palette)
+                    : new Array(TOTAL_PIXELS).fill(null);
+
+                return {
+                    id: frame.id,
+                    name: frame.name,
+                    pixelData,
+                    overlayPixelData,
+                    history: [pixelData],
+                    redoHistory: [],
+                    overlayHistory: [overlayPixelData],
+                    overlayRedoHistory: []
+                };
+            });
+
+            setSprites(newSprites);
+            setActiveSpriteId(newSprites[0].id);
+            setFloatingLayerState(new Map());
+            setSelectedPixelsState(new Set());
+
+        } catch (error) {
+            console.error("Failed to load project:", error);
+            alert("Failed to load project. Ensure it is a valid project file.");
+        }
+    }, [setIsPlaying]);
 
     const clearCanvas = useCallback(() => {
         const layerKey = activeLayer === 'base' ? 'pixelData' : 'overlayPixelData';
@@ -1206,7 +1282,19 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 activeLayer,
                 setActiveLayer,
                 isOverlayStacked,
-                setIsOverlayStacked
+                setIsOverlayStacked,
+                saveProject,
+                loadProject,
+                exportFrame,
+                exportFrameJSON,
+                exportSpriteSheet,
+                exportSelectedJSON,
+                exportSelectedPNG,
+                exportGIF,
+                layerExportMode,
+                setLayerExportMode,
+                projectName,
+                setProjectName
             }}
         >
             {children}

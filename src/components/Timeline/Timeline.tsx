@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useEditor } from '../../contexts/EditorContext';
 import { TimelineFrame } from './TimelineFrame';
 import { SortableFrame } from './SortableFrame';
-import { GRID_SIZE, TOTAL_PIXELS } from '../../types';
+import { TOTAL_PIXELS } from '../../types';
 import {
     DndContext,
     closestCenter,
@@ -16,6 +16,275 @@ import {
     SortableContext,
     horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
+
+// Import/Export Dropdown Menu Component
+interface ImportExportMenuProps {
+    selectedSpriteIds: Set<number>;
+    setSelectedSpriteIds: React.Dispatch<React.SetStateAction<Set<number>>>;
+    setIsSelectionMode: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
+    selectedSpriteIds,
+    setSelectedSpriteIds,
+    setIsSelectionMode
+}) => {
+    const [openMenu, setOpenMenu] = useState<'import' | 'export' | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const projectInputRef = useRef<HTMLInputElement>(null);
+
+    const {
+        saveProject,
+        loadProject,
+        exportFrame,
+        exportFrameJSON,
+        exportSpriteSheet,
+        exportSelectedJSON,
+        exportSelectedPNG,
+        exportGIF,
+        layerExportMode,
+        setLayerExportMode,
+        importMultipleFromJSON, // Added for the new import functionality
+        projectName, // Added project name
+        activeSprite, // Added for exportFrame
+        sprites // Added for exportSpriteSheet
+    } = useEditor();
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setOpenMenu(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => window.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleMenu = (menu: 'import' | 'export') => {
+        setOpenMenu(prev => prev === menu ? null : menu);
+    };
+
+    const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const fileList = e.target.files;
+        if (!fileList || fileList.length === 0) return;
+        const filesArray = Array.from(fileList).sort((a, b) => a.name.localeCompare(b.name));
+        try {
+            const results = await Promise.all(
+                filesArray.map(file => {
+                    return new Promise<{ name: string; pixels: (string | null)[]; overlayPixels?: (string | null)[] }[]>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            try {
+                                const json = JSON.parse(event.target?.result as string);
+                                console.log("Parsed JSON:", json);
+                                console.log("Is array?", Array.isArray(json));
+                                if (Array.isArray(json)) {
+                                    // Handle new format where export is an array of frames
+                                    resolve(json);
+                                } else if (json.pixels) {
+                                    // Handle legacy / single-frame format
+                                    resolve([{ name: file.name, pixels: json.pixels, overlayPixels: json.overlayPixels }]);
+                                } else {
+                                    reject(new Error(`Invalid JSON: ${file.name}`));
+                                }
+                            } catch (err) {
+                                reject(err);
+                            }
+                        };
+                        reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+                        reader.readAsText(file);
+                    });
+                })
+            );
+            const importedIds = importMultipleFromJSON(results.flat());
+            // Automatically select all newly imported frames so the user can easily manipulate or move them together
+            if (importedIds && importedIds.length > 0) {
+                setSelectedSpriteIds(new Set(importedIds));
+                setIsSelectionMode(true);
+            }
+        } catch (err) {
+            console.error('Failed to parse JSON import:', err);
+            alert('One or more invalid JSON files');
+        }
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+        setOpenMenu(null);
+    };
+
+    return (
+        <div ref={containerRef} style={{ display: 'flex', gap: '8px', position: 'relative', zIndex: 100 }}>
+            {/* Import Button & File Input */}
+            <div style={{ position: 'relative' }}>
+                <button className="secondary-btn-small" onClick={() => toggleMenu('import')}>
+                    Import ▾
+                </button>
+                <input
+                    type="file"
+                    accept=".json"
+                    style={{ display: 'none' }}
+                    ref={fileInputRef}
+                    onChange={handleImportJSON}
+                    multiple
+                />
+                <input
+                    type="file"
+                    accept=".json"
+                    style={{ display: 'none' }}
+                    ref={projectInputRef}
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) loadProject(file);
+                        if (projectInputRef.current) projectInputRef.current.value = '';
+                        setOpenMenu(null);
+                    }}
+                />
+                {openMenu === 'import' && (
+                    <div style={{
+                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
+                        background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+                        padding: '8px', zIndex: 100, minWidth: '150px',
+                        display: 'flex', flexDirection: 'column', gap: '6px',
+                        boxShadow: '0 -4px 6px rgba(0,0,0,0.3)'
+                    }}>
+                        <button
+                            style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#444'}
+                            onMouseOut={(e) => e.currentTarget.style.background = '#333'}
+                            onClick={() => projectInputRef.current?.click()}
+                        >
+                            Load Project (.json)
+                        </button>
+
+                        <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
+
+                        <button
+                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            Import Frames (.json)
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Export Menu */}
+            <div style={{ position: 'relative' }}>
+                <button className="secondary-btn-small" onClick={() => toggleMenu('export')}>
+                    Export ▾
+                </button>
+                {openMenu === 'export' && (
+                    <div style={{
+                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
+                        background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+                        padding: '8px', zIndex: 100, minWidth: '200px',
+                        display: 'flex', flexDirection: 'column', gap: '6px',
+                        boxShadow: '0 -4px 6px rgba(0,0,0,0.3)'
+                    }}>
+                        <button
+                            style={{ textAlign: 'left', padding: '6px 8px', background: '#333', border: '1px solid #444', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#444'}
+                            onMouseOut={(e) => e.currentTarget.style.background = '#333'}
+                            onClick={() => { saveProject(projectName); setOpenMenu(null); }}
+                        >
+                            Save Project (.json)
+                        </button>
+
+                        <div style={{ height: '1px', background: '#444', margin: '4px 0' }} />
+
+                        <div style={{ fontSize: '0.75rem', color: '#888', padding: '0 4px' }}>Target Layer:</div>
+                        <select
+                            value={layerExportMode}
+                            onChange={(e) => setLayerExportMode(e.target.value as any)}
+                            style={{ width: '100%', padding: '4px', background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: '3px', marginBottom: '4px' }}
+                        >
+                            <option value="merged">Merged Image</option>
+                            <option value="base">Base Layer</option>
+                            <option value="top">Top Layer</option>
+                        </select>
+                        {selectedSpriteIds.size === 0 ? (
+                            <>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => {
+                                        if (activeSprite) {
+                                            exportFrame(projectName, layerExportMode);
+                                        }
+                                        setOpenMenu(null);
+                                    }}
+                                >
+                                    Export Frame (.png)
+                                </button>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => {
+                                        if (activeSprite) {
+                                            exportFrameJSON(projectName, layerExportMode);
+                                        }
+                                        setOpenMenu(null);
+                                    }}
+                                >
+                                    Export Frame (.json)
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => {
+                                        const spritesToExport = sprites.filter(s => selectedSpriteIds.has(s.id));
+                                        exportSelectedPNG(projectName, layerExportMode, spritesToExport);
+                                        setOpenMenu(null);
+                                    }}
+                                >
+                                    Export Selected (.png)
+                                </button>
+                                <button
+                                    style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    onClick={() => {
+                                        const spritesToExport = sprites.filter(s => selectedSpriteIds.has(s.id));
+                                        exportSelectedJSON(projectName, layerExportMode, spritesToExport);
+                                        setOpenMenu(null);
+                                    }}
+                                >
+                                    Export Selected (.json)
+                                </button>
+                            </>
+                        )}
+                        <button
+                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                            onClick={() => { exportSpriteSheet(projectName, layerExportMode); setOpenMenu(null); }}
+                        >
+                            Export Sheet (.png)
+                        </button>
+                        <button
+                            style={{ textAlign: 'left', padding: '6px 8px', background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', borderRadius: '3px' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                            onClick={() => { exportGIF(projectName, layerExportMode); setOpenMenu(null); }}
+                        >
+                            Export Animation (.gif)
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 export const Timeline: React.FC = () => {
     const {
@@ -35,7 +304,9 @@ export const Timeline: React.FC = () => {
         fps,
         setFps,
         activeLayer,
-        isOverlayStacked
+        isOverlayStacked,
+        projectName,
+        setProjectName
     } = useEditor();
 
     const getCompositePixelData = React.useCallback((sprite: { pixelData: (string | null)[]; overlayPixelData: (string | null)[] }) => {
@@ -101,7 +372,7 @@ export const Timeline: React.FC = () => {
                 document.dispatchEvent(new PointerEvent('pointerup', cancelEvent));
                 document.dispatchEvent(new MouseEvent('mouseup', cancelEvent));
 
-                // IMPORTANT: Release pointer capture so that onPointerEnter 
+                // IMPORTANT: Release pointer capture so that onPointerEnter
                 // fires on other frames during the drag.
                 if (currentTarget instanceof Element) {
                     try {
@@ -310,98 +581,12 @@ export const Timeline: React.FC = () => {
         duplicateSprite();
     }, [setIsPlaying, duplicateSprite]);
 
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
+    // const fileInputRef = React.useRef<HTMLInputElement>(null); // This is now part of ImportExportMenu
 
-    const handleExportPNG = () => {
-        if (!activeSprite) return;
-
-        // Create 32x32 canvas (or whatever GRID_SIZE is)
-        const canvas = document.createElement('canvas');
-        canvas.width = GRID_SIZE;
-        canvas.height = GRID_SIZE;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const composite = getCompositePixelData(activeSprite);
-        composite.forEach((color, i) => {
-            if (color) {
-                const x = i % GRID_SIZE;
-                const y = Math.floor(i / GRID_SIZE);
-                ctx.fillStyle = color;
-                ctx.fillRect(x, y, 1, 1);
-            }
-        });
-
-        // Scale up to 512x512
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 512;
-        tempCanvas.height = 512;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return;
-
-        tempCtx.imageSmoothingEnabled = false;
-        tempCtx.drawImage(canvas, 0, 0, 512, 512);
-
-        // Dynamic naming: current position in the list
-        const activeIndex = sprites.findIndex(s => s.id === activeSpriteId);
-        const link = document.createElement('a');
-        link.download = `sprite-${activeIndex + 1}.png`;
-        link.href = tempCanvas.toDataURL('image/png');
-        link.click();
-    };
-
-    const handleExportJSON = () => {
-        if (!activeSprite) return;
-        const jsonData = {
-            width: GRID_SIZE,
-            height: GRID_SIZE,
-            pixels: activeSprite.pixelData,
-            overlayPixels: activeSprite.overlayPixelData
-        };
-        const jsonString = JSON.stringify(jsonData, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const activeIndex = sprites.findIndex(s => s.id === activeSpriteId);
-        const link = document.createElement('a');
-        link.download = `sprite-${activeIndex + 1}.json`;
-        link.href = url;
-        link.click();
-        URL.revokeObjectURL(url);
-    };
-
-    const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const fileList = e.target.files;
-        if (!fileList || fileList.length === 0) return;
-        const filesArray = Array.from(fileList).sort((a, b) => a.name.localeCompare(b.name));
-        try {
-            const results = await Promise.all(
-                filesArray.map(file => {
-                    return new Promise<{ name: string; pixels: (string | null)[]; overlayPixels?: (string | null)[] }>((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                            try {
-                                const json = JSON.parse(event.target?.result as string);
-                                if (json.pixels) {
-                                    resolve({ name: file.name, pixels: json.pixels, overlayPixels: json.overlayPixels });
-                                } else {
-                                    reject(new Error(`Invalid JSON: ${file.name}`));
-                                }
-                            } catch (err) {
-                                reject(err);
-                            }
-                        };
-                        reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-                        reader.readAsText(file);
-                    });
-                })
-            );
-            importMultipleFromJSON(results);
-        } catch (err) {
-            console.error('Failed to parse JSON import:', err);
-            alert('One or more invalid JSON files');
-        }
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
+    // The following export/import functions are now handled by ImportExportMenu
+    // const handleExportPNG = () => { ... };
+    // const handleExportJSON = () => { ... };
+    // const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => { ... };
 
     const [pendingDeleteId, setPendingDeleteId] = React.useState<number | null>(null);
 
@@ -742,17 +927,23 @@ export const Timeline: React.FC = () => {
                         </button>
                     )}
                 </div>
-                <div className="file-controls">
-                    <button className="secondary-btn-small" onClick={handleExportPNG}>PNG</button>
-                    <button className="secondary-btn-small" onClick={handleExportJSON}>JSON</button>
-                    <button className="secondary-btn-small" onClick={() => fileInputRef.current?.click()}>Import</button>
+                <div className="file-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
-                        type="file"
-                        ref={fileInputRef}
-                        style={{ display: 'none' }}
-                        accept=".json"
-                        multiple
-                        onChange={handleImportJSON}
+                        type="text"
+                        className="project-name-input"
+                        value={projectName}
+                        onChange={(e) => setProjectName(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                            }
+                        }}
+                        placeholder="Project Name"
+                    />
+                    <ImportExportMenu
+                        selectedSpriteIds={selectedSpriteIds}
+                        setSelectedSpriteIds={setSelectedSpriteIds}
+                        setIsSelectionMode={setIsSelectionMode}
                     />
                 </div>
             </div>
@@ -936,6 +1127,6 @@ export const Timeline: React.FC = () => {
                     })() : null}
                 </DragOverlay>
             </DndContext>
-        </div >
+        </div>
     );
 };
