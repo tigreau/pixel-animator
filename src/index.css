@@ -59,6 +59,7 @@ body {
 .editor-container {
     width: 100%;
     height: 100vh;
+    height: 100dvh;
     background: var(--panel-bg);
     display: flex;
     flex-direction: column;
@@ -81,10 +82,15 @@ body {
 }
 
 .tools-panel {
-    width: 200px;
+    width: clamp(100px, 15vw, 200px);
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    padding: 12px 8px;
-    gap: 20px;
+    padding: clamp(4px, 1vw, 12px) clamp(4px, 0.5vw, 8px);
+    gap: clamp(8px, 1.5vw, 20px);
+    max-height: 100%;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
 
@@ -127,7 +133,7 @@ body {
 .tool-btn,
 .action-btn {
     width: 100%;
-    height: 44px;
+    height: clamp(28px, 3.5vw, 44px);
     border-radius: 4px;
     border: 1px solid transparent;
     background: var(--button-bg);
@@ -137,7 +143,7 @@ body {
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
-    font-size: 0.85rem;
+    font-size: clamp(0.6rem, 0.8vw, 0.85rem);
     font-weight: 500;
     text-transform: capitalize;
 }
@@ -187,11 +193,7 @@ body {
     --grid-size: 32;
 }
 
-@media (max-width: 1024px) {
-    :root {
-        --frame-size: 75px;
-    }
-}
+
 
 .timeline-header {
     display: flex;
@@ -726,35 +728,45 @@ body {
 /* Palette Sidebar (Desktop) */
 .palette-sidebar {
     width: 100%;
-    margin-top: 12px;
-    margin-bottom: 24px;
-    display: block;
+    margin-top: clamp(4px, 0.8vw, 12px);
+    margin-bottom: 0;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Invisible scrollbar on all platforms */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.palette-sidebar::-webkit-scrollbar {
+    display: none;
 }
 
 .palette-sidebar h3 {
-    font-size: 0.7rem;
+    font-size: clamp(0.5rem, 0.7vw, 0.7rem);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
-    margin-bottom: 8px;
+    margin-bottom: clamp(2px, 0.5vw, 8px);
     text-align: center;
 }
 
 .palette-sidebar .palette-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    /* Vertical layout: 4 cols */
-    gap: 4px;
+    gap: clamp(1px, 0.3vw, 4px);
     width: 100%;
+    padding: 4px;
 }
 
 /* Recent Colors Grid (Desktop: 4 cols = 2 rows of 8) */
 .palette-sidebar .recent-colors-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 4px;
+    gap: clamp(1px, 0.3vw, 4px);
     width: 100%;
-    margin-bottom: 16px;
+    padding: 4px;
+    margin-bottom: clamp(4px, 1vw, 16px);
 }
 
 /* Hide mobile palette on desktop */
@@ -774,7 +786,7 @@ body {
     cursor: pointer;
     border: none;
     transition: all 0.15s;
-    min-height: 32px;
+    min-height: 0;
 }
 
 .palette-color:hover {
@@ -1020,16 +1032,15 @@ body {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 8px;
-    padding: 0 4px;
+    padding: 0 12px;
     width: 100%;
-    max-width: 600px;
+    gap: 8px;
 }
 
 .timeline-controls-left {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding-left: 12px;
 }
 
 .timeline-header span {
@@ -1140,6 +1151,53 @@ body {
 /* Main Sprite Editor */
 /* Merged into block above */
 
+/* Editor entrance animation */
+@keyframes editorBounceIn {
+    0% {
+        transform: translate(80vw, 150px) scale(0.1);
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+    }
+
+    25% {
+        /* Peak of first huge bounce */
+        transform: translate(30vw, -100px) scale(0.5);
+    }
+
+    55% {
+        /* First landing (overshoot left) */
+        transform: translate(-30px, 0px) scale(1.05);
+    }
+
+    70% {
+        /* Peak of second bounce */
+        transform: translate(15px, -40px) scale(0.98);
+    }
+
+    85% {
+        /* Second landing */
+        transform: translate(-5px, 0px) scale(1.01);
+    }
+
+    93% {
+        /* Peak of tiny third bounce */
+        transform: translate(2px, -10px) scale(1);
+    }
+
+    100% {
+        /* Final rest at center */
+        transform: translate(0, 0) scale(1);
+    }
+}
+
+.editor-bounce-in {
+    /* Using linear easing or custom bézier so the path feels like gravity */
+    animation: editorBounceIn 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
 .main-sprite-editor {
     display: grid;
     grid-template-columns: repeat(var(--grid-size), 1fr);
@@ -1148,9 +1206,8 @@ body {
     background: var(--grid-line);
     border: 2px solid var(--panel-border);
     padding: 2px;
-    width: 463px;
-    /* 16 * 28px + 15 gaps */
-    height: 463px;
+    width: min(463px, 75vw, 65vh);
+    height: min(463px, 75vw, 65vh);
     box-sizing: content-box;
     position: relative;
 }
@@ -1463,4 +1520,201 @@ body {
 .timeline-frame.ghost.add-new {
     opacity: 0.7;
     border: 1px dashed var(--accent-color) !important;
+}
+
+/* ==========================================================================
+   RESPONSIVE STYLES
+   All mobile/tablet overrides are grouped here for maintainability.
+
+   Breakpoints:
+   - Tablet:           max-width: 1024px  (smaller frames)
+   - Mobile:           max-width: 768px   (compact UI, top bar, sidebar)
+   ========================================================================== */
+
+/* --- Tablet (≤ 1024px): Smaller timeline frames --- */
+@media (max-width: 1024px) {
+    :root {
+        --frame-size: 75px;
+    }
+}
+
+/* --- Mobile-Only Components (rendered conditionally via React) --- */
+
+/* Top Bar (portrait replacement for sidebar) */
+.top-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.top-bar-group {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.top-bar-btn {
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: var(--button-bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.top-bar-btn:hover {
+    background: var(--button-hover);
+    color: var(--text-color);
+}
+
+.top-bar-btn.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-hover);
+}
+
+.top-bar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--panel-border);
+    flex-shrink: 0;
+}
+
+.top-bar-colors {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.top-bar-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.top-bar-swatch:hover {
+    transform: scale(1.15);
+}
+
+.top-bar-swatch.active {
+    border-color: white;
+    transform: scale(1.15);
+    z-index: 2;
+}
+
+/* Toggle row (Toolbar / Timeline) below top bar */
+.mobile-toggles {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding: 4px 12px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    flex-shrink: 0;
+}
+
+/* --- Mobile (≤ 768px): Compact scaling for all elements --- */
+@media (max-width: 768px) {
+
+    /* Timeline frames */
+    :root {
+        --frame-size: 56px;
+    }
+
+    /* Layout spacing */
+    .canvas-area {
+        padding: 8px 4px 0 4px;
+    }
+
+    .main-editor-container {
+        padding: 2px;
+    }
+
+    .timeline-section {
+        margin-top: 8px;
+    }
+
+    /* Typography */
+    .canvas-area>span,
+    .canvas-area>div>span {
+        font-size: 0.65rem !important;
+    }
+
+    .timeline-frame-list span {
+        font-size: 0.65rem !important;
+    }
+
+    /* Timeline header & controls */
+    .timeline-header {
+        padding: 0 8px;
+        margin-bottom: 4px;
+    }
+
+    .control-btn-small {
+        padding: 3px 8px;
+        font-size: 0.65rem;
+    }
+
+    .secondary-btn-small {
+        padding: 3px 6px;
+        font-size: 0.65rem;
+    }
+
+    .frame-number {
+        font-size: 8px;
+        top: 2px;
+        left: 2px;
+    }
+
+    .timeline-add-btn {
+        font-size: 20px;
+    }
+
+    /* Import/Export */
+    .file-controls .secondary-btn {
+        padding: 4px 8px;
+        font-size: 0.7rem;
+    }
+
+    /* Canvas buttons (e.g. Unstack Layers) */
+    .canvas-area button {
+        font-size: 0.7rem;
+        padding: 4px 10px;
+    }
+
+    /* Top bar — portrait compact */
+    .top-bar {
+        padding: 6px 8px;
+        gap: 6px;
+    }
+
+    .top-bar-btn {
+        height: 28px;
+        padding: 0 8px;
+        font-size: 0.65rem;
+    }
+
+    .top-bar-swatch {
+        width: 20px;
+        height: 20px;
+    }
+
+    .top-bar-divider {
+        height: 20px;
+    }
+
 }

@@ -33,6 +33,9 @@ export interface EditorContextType {
     undo: () => void;
     redo: () => void;
     clearCanvas: () => void;
+    canUndo: boolean;
+    canRedo: boolean;
+    canClear: boolean;
     addSprite: () => void;
     duplicateSprite: () => void;
     deleteSprite: (id?: number) => void;

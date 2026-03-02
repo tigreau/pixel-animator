@@ -22,7 +22,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }
     ]);
     const [activeSpriteId, setActiveSpriteId] = useState<number>(0);
-    const [currentColor, setCurrentColor] = useState<string | null>(PRESET_COLORS[0]);
+    const [currentColor, setCurrentColor] = useState<string | null>(null);
     const [currentTool, setTool] = useState<Tool>('brush');
     const [isDrawingState, setIsDrawingState] = useState(false);
     const [recentColors, setRecentColors] = useState<string[]>([]);
@@ -1177,6 +1177,10 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
     }, [activeLayer, activeSpriteId, saveHistory]);
 
+    const canUndo = activeSprite ? activeSprite.history.length > 1 : false;
+    const canRedo = activeSprite ? activeSprite.redoHistory.length > 0 : false;
+    const canClear = activeSprite ? (activeLayer === 'base' ? activeSprite.pixelData.some(p => p !== null) : activeSprite.overlayPixelData.some(p => p !== null)) : false;
+
     return (
         <EditorContext.Provider
             value={{
@@ -1196,6 +1200,9 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 undo,
                 redo,
                 clearCanvas,
+                canUndo,
+                canRedo,
+                canClear,
                 addSprite,
                 duplicateSprite,
                 deleteSprite,

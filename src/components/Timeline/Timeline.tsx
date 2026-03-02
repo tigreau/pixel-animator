@@ -148,7 +148,7 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
                     />
                     {openMenu === 'import' && (
                         <div style={{
-                            position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
+                            position: 'absolute', bottom: '100%', right: 0, left: 'auto', marginBottom: '4px',
                             background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
                             padding: '8px', zIndex: 100, minWidth: '150px',
                             display: 'flex', flexDirection: 'column', gap: '6px',
@@ -185,7 +185,7 @@ const ImportExportMenu: React.FC<ImportExportMenuProps> = ({
                 </button>
                 {openMenu === 'export' && (
                     <div style={{
-                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
+                        position: 'absolute', bottom: '100%', right: 0, left: 'auto', marginBottom: '4px',
                         background: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
                         padding: '8px', zIndex: 100, minWidth: '200px',
                         display: 'flex', flexDirection: 'column', gap: '6px',

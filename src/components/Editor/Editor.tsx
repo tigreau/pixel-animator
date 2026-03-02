@@ -76,7 +76,8 @@ export const Editor: React.FC = () => {
         activeLayer,
         setActiveLayer,
         isOverlayStacked,
-        setIsOverlayStacked
+        setIsOverlayStacked,
+        recentColors
     } = useEditor();
 
     const activeSpriteIndex = sprites.findIndex(s => s.id === activeSpriteId);
@@ -114,6 +115,15 @@ export const Editor: React.FC = () => {
     const [shapeHintMode, setShapeHintMode] = useState<'line' | 'circle' | null>(null);
     const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
     const [viewZoom, setViewZoom] = useState(1);
+    const [showBounce, setShowBounce] = useState(false);
+    const [hasPickedColor, setHasPickedColor] = useState(recentColors.length > 0);
+
+    useEffect(() => {
+        if (recentColors.length > 0 && !hasPickedColor) {
+            setHasPickedColor(true);
+            setShowBounce(true);
+        }
+    }, [recentColors.length, hasPickedColor]);
     const [dropperHoldOverlay, setDropperHoldOverlay] = useState<
         | { kind: 'cells'; indices: number[]; baseColors: Record<number, string | null>; progress: number }
         | { kind: 'block'; x: number; y: number; w: number; h: number; baseColor: string | null; progress: number }
@@ -1087,8 +1097,7 @@ export const Editor: React.FC = () => {
         };
     }, [cancelStroke, currentTool, isDrawing, isEyedropperActive, selectedPixels]);
 
-    const scale = (brushSize === 1 && isZoomed) ? 2 : 1;
-    const editorSize = 463 * scale;
+    const editorSizeCss = `min(620px, 50vw, 70vh)`;
 
     const eyedropperColor = (isEyedropperActive && hoveredGridIndex !== null)
         ? (floatingLayer.has(hoveredGridIndex) ? floatingLayer.get(hoveredGridIndex)! : activeLayerPixels[hoveredGridIndex])
@@ -1208,10 +1217,26 @@ export const Editor: React.FC = () => {
                     targetColor={eyedropperColor || null}
                 />
             )}
+            {!hasPickedColor && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    color: 'var(--text-muted)',
+                    fontSize: '1.2rem',
+                    fontWeight: 600,
+                    opacity: 0.5,
+                    pointerEvents: 'none',
+                    textAlign: 'center'
+                }}>
+                    Select a color from the palette to begin
+                </div>
+            )}
             <div
                 ref={workspaceRef}
                 style={{
-                    display: 'flex',
+                    display: hasPickedColor ? 'flex' : 'none',
                     alignItems: 'flex-start',
                     transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${viewZoom})`,
                     transformOrigin: 'center center'
@@ -1219,13 +1244,13 @@ export const Editor: React.FC = () => {
             >
                 {editingLayer === 'top' && !isOverlayStacked && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginRight: '16px', flexShrink: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>BASE</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', transform: `scale(${1 / viewZoom})`, transformOrigin: 'center bottom' }}>BASE</div>
                         <div
                             className="main-sprite-editor layer-preview"
                             onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('base'); }}
                             style={{
-                                width: `${editorSize}px`,
-                                height: `${editorSize}px`,
+                                width: editorSizeCss,
+                                height: editorSizeCss,
                                 opacity: 0.68,
                                 flexShrink: 0
                             }}
@@ -1236,8 +1261,8 @@ export const Editor: React.FC = () => {
                         </div>
                     </div>
                 )}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-color)' }}>
+                <div className={showBounce ? 'editor-bounce-in' : ''} onAnimationEnd={() => setShowBounce(false)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-color)', transform: `scale(${1 / viewZoom})`, transformOrigin: 'center bottom', whiteSpace: 'nowrap' }}>
                         {topStatusText}
                     </div>
                     <div
@@ -1248,8 +1273,8 @@ export const Editor: React.FC = () => {
                             '--cursor-normal': cursorStyle.cursor,
                             '--cursor-faint': faintCursorStyle,
                             '--selection-cursor': selectionCursorStyle.cursor,
-                            width: `${editorSize}px`,
-                            height: `${editorSize}px`,
+                            width: editorSizeCss,
+                            height: editorSizeCss,
                             flexShrink: 0,
                         } as React.CSSProperties & Record<'--cursor-normal' | '--cursor-faint' | '--selection-cursor', string>}
                     >
@@ -1482,7 +1507,9 @@ export const Editor: React.FC = () => {
                             position: 'absolute',
                             top: 'calc(100% + 8px)',
                             left: '50%',
-                            transform: 'translateX(-50%)'
+                            transform: `translateX(-50%) scale(${1 / viewZoom})`,
+                            transformOrigin: 'center top',
+                            whiteSpace: 'nowrap'
                         }}
                     >
                         {isOverlayStacked ? 'Unstack Layers' : 'Stack Layers'}
@@ -1490,13 +1517,13 @@ export const Editor: React.FC = () => {
                 </div>
                 {editingLayer === 'base' && !isOverlayStacked && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>TOP</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', transform: `scale(${1 / viewZoom})`, transformOrigin: 'center bottom' }}>TOP</div>
                         <div
                             className="main-sprite-editor layer-preview"
                             onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('top'); }}
                             style={{
-                                width: `${editorSize}px`,
-                                height: `${editorSize}px`,
+                                width: editorSizeCss,
+                                height: editorSizeCss,
                                 opacity: 0.68,
                                 flexShrink: 0
                             }}

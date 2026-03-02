@@ -6,10 +6,12 @@ const MAX_SLOTS = 8;
 export const RecentColors: React.FC = () => {
     const { recentColors, setCurrentColor, currentTool, setTool, currentColor } = useEditor();
 
-    // Loop to create 8 slots
-    // Slot 0 is always Clear
-    // Slots 1-7 are recent colors
-    const slots = Array.from({ length: MAX_SLOTS });
+    if (recentColors.length === 0) return null;
+
+    // If user has 3 or fewer recent colors, show 4 slots (1 clear + 3 colors).
+    // If they have 4 or more, expand to show all 8 slots.
+    const displaySlots = recentColors.length >= 4 ? MAX_SLOTS : 4;
+    const slots = Array.from({ length: displaySlots });
 
     return (
         <div className="recent-colors-section">
