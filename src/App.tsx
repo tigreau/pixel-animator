@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { TopBar } from './components/Mobile/TopBar'
 import { Editor } from './components/Editor/Editor'
 import { Timeline } from './components/Timeline/Timeline'
+import { SelectionControls } from './components/Editor/SelectionControls'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { ShortcutsPanel } from './components/ShortcutsPanel'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -81,6 +82,7 @@ const AppContent = () => {
 
                     <div className="canvas-area">
                         <Editor />
+                        {hasDrawn && <SelectionControls />}
                         {hasDrawn && showTimeline && <Timeline />}
                     </div>
                 </div>

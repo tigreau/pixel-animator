@@ -34,9 +34,24 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const [fps, setFps] = useState(8);
     const [brushSize, setBrushSize] = useState<1 | 2>(2);
     const [activeLayer, setActiveLayer] = useState<Layer>('base');
+
+    // Prevent redundant stamps
+    const lastStampedStateRef = useRef<{ layer: Layer, pixels: Set<number> } | null>(null);
+    const dirtyFramesRef = useRef<Set<number>>(new Set());
+
     const [isOverlayStacked, setIsOverlayStacked] = useState(true);
     const [layerExportMode, setLayerExportMode] = useState<LayerExportMode>('merged');
     const [projectName, setProjectName] = useState<string>('project_name');
+    const [activeActions, setActiveActions] = useState<string[]>([]);
+
+    useEffect(() => {
+        const handleActionsChanged = (e: Event) => {
+            const customEvent = e as CustomEvent<string[]>;
+            setActiveActions([...customEvent.detail]);
+        };
+        window.addEventListener('active-actions-changed', handleActionsChanged);
+        return () => window.removeEventListener('active-actions-changed', handleActionsChanged);
+    }, []);
 
     // Helper to save history
     const saveHistory = useCallback((currentSprites: Sprite[], spriteId: number) => {
@@ -87,9 +102,51 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
     }, []);
 
-    const stamp = useCallback(() => {
+    const commitHistory = useCallback(() => {
+        if (dirtyFramesRef.current.size === 0) return;
+
+        setSprites(prevSprites => {
+            const nextSprites = prevSprites.map(sprite => {
+                if (!dirtyFramesRef.current.has(sprite.id)) {
+                    return sprite;
+                }
+
+                const newHistory = [...sprite.history];
+                const newOverlayHistory = [...sprite.overlayHistory];
+
+                if (newHistory.length > 20) newHistory.shift();
+                if (newOverlayHistory.length > 20) newOverlayHistory.shift();
+
+                newHistory.push([...sprite.pixelData]);
+                newOverlayHistory.push([...sprite.overlayPixelData]);
+
+                return {
+                    ...sprite,
+                    history: newHistory,
+                    overlayHistory: newOverlayHistory,
+                    redoHistory: [],
+                    overlayRedoHistory: []
+                };
+            });
+            return nextSprites;
+        });
+
+        dirtyFramesRef.current.clear();
+    }, []);
+
+    const stamp = useCallback((commit: boolean = true) => {
         const layerKey = activeLayer === 'base' ? 'pixelData' : 'overlayPixelData';
         if (floatingLayerState.size > 0) {
+            // Prevent exact duplicate consecutive stamps
+            if (
+                lastStampedStateRef.current &&
+                lastStampedStateRef.current.layer === activeLayer &&
+                lastStampedStateRef.current.pixels === selectedPixels
+            ) {
+                return;
+            }
+            lastStampedStateRef.current = { layer: activeLayer, pixels: selectedPixels };
+
             // Trigger Animation
             setIsStamping(true);
             setTimeout(() => setIsStamping(false), 200);
@@ -104,11 +161,15 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                     });
                     return { ...sprite, [layerKey]: newPixelData };
                 });
+                if (!commit) {
+                    dirtyFramesRef.current.add(activeSpriteId);
+                    return nextSprites;
+                }
                 return saveHistory(nextSprites, activeSpriteId);
             });
             // DO NOT Clear floating layer (Stay floating)
         }
-    }, [activeLayer, floatingLayerState, activeSpriteId, saveHistory]);
+    }, [activeLayer, floatingLayerState, activeSpriteId, saveHistory, selectedPixels]);
 
     const clearSelection = useCallback(() => {
         const layerKey = activeLayer === 'base' ? 'pixelData' : 'overlayPixelData';
@@ -134,6 +195,9 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         const layerKey = activeLayer === 'base' ? 'pixelData' : 'overlayPixelData';
         const pixelsToLift = pixelsOverride || selectedPixels;
 
+        // Reset last stamp state since we are lifting new pixels
+        lastStampedStateRef.current = null;
+
         setSprites(prevSprites => {
             const nextSprites = prevSprites.map(sprite => {
                 if (sprite.id !== activeSpriteId) return sprite;
@@ -156,196 +220,279 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }, [activeLayer, activeSpriteId, selectedPixels, saveHistory]);
 
     const flipSelectionHorizontal = useCallback(() => {
-        if (floatingLayerState.size === 0 && selectedPixels.size > 0) return;
+        if (floatingLayerState.size === 0 && selectedPixels.size === 0) return;
 
-        setFloatingLayerState(prev => {
-            const newLayer = new Map();
-            let minX = GRID_SIZE, maxX = -1;
-            selectedPixels.forEach(idx => {
+        let cancelledUpdate = false;
+        let localMinX = 0; let localMaxX = 0;
+
+        setSelectedPixelsState(prevSelection => {
+            if (prevSelection.size === 0) {
+                cancelledUpdate = true;
+                return prevSelection;
+            }
+
+            localMinX = GRID_SIZE;
+            localMaxX = -1;
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x);
-            });
+                if (x < localMinX) localMinX = x;
+                if (x > localMaxX) localMaxX = x;
+            }
 
             const newSelection = new Set<number>();
-            selectedPixels.forEach(idx => {
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                const flippedX = minX + (maxX - x);
-                const flippedIdx = y * GRID_SIZE + flippedX;
+                const newX = localMaxX - (x - localMinX);
+                newSelection.add(y * GRID_SIZE + newX);
+            }
+            return newSelection;
+        });
 
-                newSelection.add(flippedIdx);
-                if (prev.has(idx)) {
-                    newLayer.set(flippedIdx, prev.get(idx)!);
-                }
-            });
-            setSelectedPixelsState(newSelection);
+        setFloatingLayerState(prevLayer => {
+            if (cancelledUpdate && prevLayer.size === 0) return prevLayer; // Only cancel if selection was empty AND floating layer is empty
+
+            const newLayer = new Map<number, string>();
+            for (const [idx, color] of prevLayer.entries()) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const newX = localMaxX - (x - localMinX);
+                newLayer.set(y * GRID_SIZE + newX, color);
+            }
             return newLayer;
         });
-    }, [floatingLayerState, selectedPixels]);
+    }, [floatingLayerState.size, selectedPixels.size]);
 
     const flipSelectionVertical = useCallback(() => {
-        if (floatingLayerState.size === 0 && selectedPixels.size > 0) return;
+        if (floatingLayerState.size === 0 && selectedPixels.size === 0) return;
 
-        setFloatingLayerState(prev => {
-            const newLayer = new Map();
-            let minY = GRID_SIZE, maxY = -1;
-            selectedPixels.forEach(idx => {
+        let cancelledUpdate = false;
+        let localMinY = 0; let localMaxY = 0;
+
+        setSelectedPixelsState(prevSelection => {
+            if (prevSelection.size === 0) {
+                cancelledUpdate = true;
+                return prevSelection;
+            }
+
+            localMinY = GRID_SIZE;
+            localMaxY = -1;
+            for (const idx of prevSelection) {
                 const y = Math.floor(idx / GRID_SIZE);
-                minY = Math.min(minY, y);
-                maxY = Math.max(maxY, y);
-            });
+                if (y < localMinY) localMinY = y;
+                if (y > localMaxY) localMaxY = y;
+            }
 
             const newSelection = new Set<number>();
-            selectedPixels.forEach(idx => {
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                const flippedY = minY + (maxY - y);
-                const flippedIdx = flippedY * GRID_SIZE + x;
+                const newY = localMaxY - (y - localMinY);
+                newSelection.add(newY * GRID_SIZE + x);
+            }
+            return newSelection;
+        });
 
-                newSelection.add(flippedIdx);
-                if (prev.has(idx)) {
-                    newLayer.set(flippedIdx, prev.get(idx)!);
-                }
-            });
-            setSelectedPixelsState(newSelection);
+        setFloatingLayerState(prevLayer => {
+            if (cancelledUpdate && prevLayer.size === 0) return prevLayer;
+
+            const newLayer = new Map<number, string>();
+            for (const [idx, color] of prevLayer.entries()) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const newY = localMaxY - (y - localMinY);
+                newLayer.set(newY * GRID_SIZE + x, color);
+            }
             return newLayer;
         });
-    }, [floatingLayerState, selectedPixels]);
+    }, [floatingLayerState.size, selectedPixels.size]);
 
     const rotateSelectionLeft = useCallback(() => {
-        if (floatingLayerState.size === 0 && selectedPixels.size > 0) return;
+        if (floatingLayerState.size === 0 && selectedPixels.size === 0) return;
 
-        setFloatingLayerState(prev => {
-            const newLayer = new Map();
-            let minX = GRID_SIZE, maxX = -1;
-            let minY = GRID_SIZE, maxY = -1;
+        let cancelledUpdate = false;
+        let localMinX = 0, localMinY = 0, width = 0;
 
-            selectedPixels.forEach(idx => {
+        setSelectedPixelsState(prevSelection => {
+            if (prevSelection.size === 0) {
+                cancelledUpdate = true;
+                return prevSelection;
+            }
+
+            localMinX = GRID_SIZE; let maxX = -1;
+            localMinY = GRID_SIZE; let maxY = -1;
+
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x);
-                minY = Math.min(minY, y);
-                maxY = Math.max(maxY, y);
-            });
+                if (x < localMinX) localMinX = x;
+                if (x > maxX) maxX = x;
+                if (y < localMinY) localMinY = y;
+                if (y > maxY) maxY = y;
+            }
 
-            const width = maxX - minX + 1;
-            const height = maxY - minY + 1;
+            width = maxX - localMinX + 1;
+
             const newSelection = new Set<number>();
-
-            selectedPixels.forEach(idx => {
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                const relX = x - minX;
-                const relY = y - minY;
-                // 90 CCW: (x, y) -> (y, w - 1 - x)
+                const relX = x - localMinX;
+                const relY = y - localMinY;
+                const newRelX = relY;
+                const newRelY = width - 1 - relX; // 90 CCW
+
+                const newX = localMinX + newRelX;
+                const newY = localMinY + newRelY;
+                if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
+                    newSelection.add(newY * GRID_SIZE + newX);
+                }
+            }
+            return newSelection;
+        });
+
+        setFloatingLayerState(prevLayer => {
+            if (cancelledUpdate && prevLayer.size === 0) return prevLayer;
+
+            const newLayer = new Map<number, string>();
+            for (const [idx, color] of prevLayer.entries()) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const relX = x - localMinX;
+                const relY = y - localMinY;
                 const newRelX = relY;
                 const newRelY = width - 1 - relX;
 
-                if (newRelX < height && newRelY < width) {
-                    const newX = minX + newRelX;
-                    const newY = minY + newRelY;
-                    if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
-                        const newIdx = newY * GRID_SIZE + newX;
-                        newSelection.add(newIdx);
-                        if (prev.has(idx)) {
-                            newLayer.set(newIdx, prev.get(idx)!);
-                        }
-                    }
+                const newX = localMinX + newRelX;
+                const newY = localMinY + newRelY;
+                if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
+                    newLayer.set(newY * GRID_SIZE + newX, color);
                 }
-            });
-
-            setSelectedPixelsState(newSelection);
+            }
             return newLayer;
         });
-    }, [floatingLayerState, selectedPixels]);
+    }, [floatingLayerState.size, selectedPixels.size]);
 
     const rotateSelectionRight = useCallback(() => {
-        if (floatingLayerState.size === 0 && selectedPixels.size > 0) return;
+        if (floatingLayerState.size === 0 && selectedPixels.size === 0) return;
 
-        setFloatingLayerState(prev => {
-            const newLayer = new Map();
-            let minX = GRID_SIZE, maxX = -1;
-            let minY = GRID_SIZE, maxY = -1;
+        let cancelledUpdate = false;
+        let localMinX = 0, localMinY = 0, height = 0;
 
-            selectedPixels.forEach(idx => {
+        setSelectedPixelsState(prevSelection => {
+            if (prevSelection.size === 0) {
+                cancelledUpdate = true;
+                return prevSelection;
+            }
+
+            localMinX = GRID_SIZE; let maxX = -1;
+            localMinY = GRID_SIZE; let maxY = -1;
+
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x);
-                minY = Math.min(minY, y);
-                maxY = Math.max(maxY, y);
-            });
+                if (x < localMinX) localMinX = x;
+                if (x > maxX) maxX = x;
+                if (y < localMinY) localMinY = y;
+                if (y > maxY) maxY = y;
+            }
 
-            const width = maxX - minX + 1;
-            const height = maxY - minY + 1;
+            height = maxY - localMinY + 1;
+
             const newSelection = new Set<number>();
-
-            selectedPixels.forEach(idx => {
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
-                const relX = x - minX;
-                const relY = y - minY;
-                // 90 CW: (x, y) -> (h - 1 - y, x)
+                const relX = x - localMinX;
+                const relY = y - localMinY;
+                const newRelX = height - 1 - relY;
+                const newRelY = relX; // 90 CW
+
+                const newX = localMinX + newRelX;
+                const newY = localMinY + newRelY;
+                if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
+                    newSelection.add(newY * GRID_SIZE + newX);
+                }
+            }
+            return newSelection;
+        });
+
+        setFloatingLayerState(prevLayer => {
+            if (cancelledUpdate && prevLayer.size === 0) return prevLayer;
+
+            const newLayer = new Map<number, string>();
+            for (const [idx, color] of prevLayer.entries()) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const relX = x - localMinX;
+                const relY = y - localMinY;
                 const newRelX = height - 1 - relY;
                 const newRelY = relX;
 
-                if (newRelX < height && newRelY < width) {
-                    const newX = minX + newRelX;
-                    const newY = minY + newRelY;
-                    if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
-                        const newIdx = newY * GRID_SIZE + newX;
-                        newSelection.add(newIdx);
-                        if (prev.has(idx)) {
-                            newLayer.set(newIdx, prev.get(idx)!);
-                        }
-                    }
+                const newX = localMinX + newRelX;
+                const newY = localMinY + newRelY;
+                if (newX >= 0 && newX < GRID_SIZE && newY >= 0 && newY < GRID_SIZE) {
+                    newLayer.set(newY * GRID_SIZE + newX, color);
                 }
-            });
-            setSelectedPixelsState(newSelection);
+            }
             return newLayer;
         });
-    }, [floatingLayerState, selectedPixels]);
+    }, [floatingLayerState.size, selectedPixels.size]);
 
     const nudgeSelection = useCallback((dx: number, dy: number) => {
-        if (floatingLayerState.size === 0 && selectedPixels.size > 0) return;
+        // We do boundary checks dynamically inside the functional updates 
+        // to avoid referencing stale `selectedPixels` from enclosures.
 
-        // 1. Boundary Check
-        let isValidMove = true;
-        selectedPixels.forEach(idx => {
-            const x = idx % GRID_SIZE;
-            const y = Math.floor(idx / GRID_SIZE);
-            const newX = x + dx;
-            const newY = y + dy;
-            if (newX < 0 || newX >= GRID_SIZE || newY < 0 || newY >= GRID_SIZE) {
-                isValidMove = false;
+        let cancelledUpdate = false;
+
+        setSelectedPixelsState(prevSelection => {
+            if (prevSelection.size === 0) {
+                cancelledUpdate = true;
+                return prevSelection;
             }
-        });
-        if (!isValidMove) return;
 
-        // 2. Move Floating Layer
-        setFloatingLayerState(prev => {
-            const newLayer = new Map();
-            const newSelection = new Set<number>();
-
-            selectedPixels.forEach(idx => {
+            // 1. Boundary Check based on FRESH state
+            let isValidMove = true;
+            for (const idx of prevSelection) {
                 const x = idx % GRID_SIZE;
                 const y = Math.floor(idx / GRID_SIZE);
                 const newX = x + dx;
                 const newY = y + dy;
-                const newIdx = newY * GRID_SIZE + newX;
-
-                newSelection.add(newIdx);
-                if (prev.has(idx)) {
-                    newLayer.set(newIdx, prev.get(idx)!);
+                if (newX < 0 || newX >= GRID_SIZE || newY < 0 || newY >= GRID_SIZE) {
+                    isValidMove = false;
+                    break;
                 }
-            });
+            }
 
-            setSelectedPixelsState(newSelection);
+            if (!isValidMove) {
+                cancelledUpdate = true;
+                return prevSelection;
+            }
+
+            // 2. Move Selection Mask
+            const newSelection = new Set<number>();
+            for (const idx of prevSelection) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const newIdx = (y + dy) * GRID_SIZE + (x + dx);
+                newSelection.add(newIdx);
+            }
+            return newSelection;
+        });
+
+        setFloatingLayerState(prevLayer => {
+            if (cancelledUpdate || prevLayer.size === 0) return prevLayer;
+
+            const newLayer = new Map<number, string>();
+            for (const [idx, color] of prevLayer.entries()) {
+                const x = idx % GRID_SIZE;
+                const y = Math.floor(idx / GRID_SIZE);
+                const newIdx = (y + dy) * GRID_SIZE + (x + dx);
+                newLayer.set(newIdx, color);
+            }
             return newLayer;
         });
-    }, [floatingLayerState, selectedPixels]);
+    }, []);
 
 
 
@@ -1190,6 +1337,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 currentColor,
                 currentTool,
                 isDrawing: isDrawingState,
+                activeActions,
                 recentColors,
                 setIsDrawing,
                 updatePixel,
@@ -1224,6 +1372,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 setIsOnionSkinning,
                 importMultipleFromJSON,
                 stamp,
+                commitHistory,
                 isStamping,
                 fps,
                 setFps,

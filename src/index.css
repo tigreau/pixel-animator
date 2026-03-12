@@ -25,6 +25,9 @@
     font-family: 'Outfit', sans-serif;
     -ms-overflow-style: none;
     scrollbar-width: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 *::-webkit-scrollbar {
@@ -1068,6 +1071,8 @@ body {
 .control-btn-small:active,
 .control-btn-small.active {
     background: #ef4444;
+    transition: background-color 0s;
+    /* Instant highlight, slow fade out */
 }
 
 .secondary-btn-small {

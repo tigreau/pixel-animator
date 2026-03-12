@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import Mousetrap from 'mousetrap';
 import { useEditor } from '../contexts/editorContextShared';
 
 export const useKeyboardShortcuts = () => {
@@ -25,202 +26,245 @@ export const useKeyboardShortcuts = () => {
         rotateSelectionLeft,
         rotateSelectionRight,
         addSprite,
-        clearCanvas
+        clearCanvas,
+        commitHistory
     } = useEditor();
-    const isStampKeyHeldRef = useRef(false);
+    const activeActionsRef = useRef(new Set<string>());
+    const lastTickRef = useRef<number>(0);
+    const animationFrameRef = useRef<number | null>(null);
+
+    // Refs for current state to avoid stale closures in the loop
+    const stateRefs = useRef({
+        selectedPixelsSize: selectedPixels.size,
+        floatingLayerSize: floatingLayer.size,
+        nudgeSelection,
+        stamp,
+        commitHistory
+    });
 
     useEffect(() => {
-        const shouldAutoStamp = () => (
-            selectedPixels.size > 0 &&
-            floatingLayer.size > 0 &&
-            isStampKeyHeldRef.current
-        );
+        stateRefs.current = {
+            selectedPixelsSize: selectedPixels.size,
+            floatingLayerSize: floatingLayer.size,
+            nudgeSelection,
+            stamp,
+            commitHistory
+        };
+    }, [selectedPixels.size, floatingLayer.size, nudgeSelection, stamp, commitHistory]);
 
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore if input/textarea is active
-            const activeElement = document.activeElement;
-            const isInput = activeElement instanceof HTMLInputElement ||
-                activeElement instanceof HTMLTextAreaElement ||
-                activeElement?.hasAttribute('contenteditable');
+    useEffect(() => {
+        const TICK_RATE_MS = 80;
 
-            if (isInput) return;
+        const gameLoop = (timestamp: number) => {
+            if (timestamp - lastTickRef.current >= TICK_RATE_MS) {
+                lastTickRef.current = timestamp;
 
-            // Modifiers
-            const isCmd = e.metaKey || e.ctrlKey;
-            const isShift = e.shiftKey;
+                const { selectedPixelsSize, floatingLayerSize, nudgeSelection, stamp } = stateRefs.current;
+                const actions = activeActionsRef.current;
 
-            // --- Tools ---
-            if (!isCmd) {
-                // Check modifiers for specific actions first
-                if (isShift) {
-                    switch (e.code) {
-                        case 'KeyH':
-                            e.preventDefault();
-                            if (selectedPixels.size > 0) {
-                                flipSelectionHorizontal();
-                                if (shouldAutoStamp()) stamp();
-                            }
-                            break;
-                        case 'KeyV':
-                            e.preventDefault();
-                            if (selectedPixels.size > 0) {
-                                flipSelectionVertical();
-                                if (shouldAutoStamp()) stamp();
-                            }
-                            break;
-                        case 'KeyR':
-                            e.preventDefault();
-                            if (selectedPixels.size > 0) {
-                                rotateSelectionLeft();
-                                if (shouldAutoStamp()) stamp();
-                            }
-                            break;
-                        // Shift+N moved to Timeline.tsx
-                    }
-                } else {
-                    // No Shift
-                    switch (e.code) {
-                        case 'KeyB':
-                            setTool('brush');
-                            break;
-                        case 'KeyE':
-                            setTool('eraser');
-                            break;
-                        case 'KeyF':
-                        case 'KeyG': // Aseprite/Adobe default
-                            setTool('fill');
-                            break;
-                        case 'KeyS':
-                        case 'KeyM': // Aseprite/Adobe default
-                            setTool('select');
-                            break;
-                        case 'BracketLeft':
-                            setBrushSize(1);
-                            break;
-                        case 'BracketRight':
-                            setBrushSize(2);
-                            break;
-                        case 'Space':
-                            e.preventDefault();
-                            setIsPlaying(!isPlaying);
-                            break;
-                        case 'Enter':
-                            e.preventDefault();
-                            isStampKeyHeldRef.current = true;
-                            if (!e.repeat) stamp();
-                            break;
-                        case 'Escape':
-                            if (selectedPixels.size > 0) {
-                                clearSelection();
-                            }
-                            break;
-                        case 'KeyR': // Rotate Right (No Shift)
-                            if (selectedPixels.size > 0) {
-                                e.preventDefault();
-                                rotateSelectionRight();
-                                if (shouldAutoStamp()) stamp();
-                            }
-                            break;
-                    }
-                }
-            }
+                if (selectedPixelsSize > 0) {
+                    let dx = 0;
+                    let dy = 0;
+                    let nudged = false;
 
-            // --- Timeline Navigation ---
-            if (!isCmd && !isShift) {
-                if (e.key === ',' || e.key === '<') {
-                    e.preventDefault();
-                    // Previous Frame
-                    const idx = sprites.findIndex(s => s.id === activeSpriteId);
-                    if (idx !== -1) {
-                        const count = sprites.length;
-                        const prevIdx = (idx - 1 + count) % count;
-                        setActiveSpriteId(sprites[prevIdx].id);
-                    }
-                }
-                if (e.key === '.' || e.key === '>') {
-                    // Next Frame
-                    e.preventDefault();
-                    const idx = sprites.findIndex(s => s.id === activeSpriteId);
-                    if (idx !== -1) {
-                        const count = sprites.length;
-                        const nextIdx = (idx + 1) % count;
-                        setActiveSpriteId(sprites[nextIdx].id);
-                    }
-                }
-            }
+                    if (actions.has('left')) { dx -= 1; nudged = true; }
+                    if (actions.has('right')) { dx += 1; nudged = true; }
+                    if (actions.has('up')) { dy -= 1; nudged = true; }
+                    if (actions.has('down')) { dy += 1; nudged = true; }
 
-            // --- Nudge Selection ---
-            if (!isCmd && selectedPixels.size > 0) {
-                let dx = 0;
-                let dy = 0;
-                let handled = false;
-
-                switch (e.key) {
-                    case 'ArrowLeft': dx = -1; handled = true; break;
-                    case 'ArrowRight': dx = 1; handled = true; break;
-                    case 'ArrowUp': dy = -1; handled = true; break;
-                    case 'ArrowDown': dy = 1; handled = true; break;
-                }
-
-                if (handled) {
-                    e.preventDefault();
-                    nudgeSelection(dx, dy);
-                    if (shouldAutoStamp()) stamp();
-                    return;
-                }
-            }
-
-            // --- Actions (Undo/Redo/Copy/etc) ---
-            if (isCmd) {
-                switch (e.code) {
-                    case 'KeyZ':
-                        e.preventDefault();
-                        if (isShift) {
-                            redo();
-                        } else {
-                            undo();
+                    if (nudged) {
+                        nudgeSelection(dx, dy);
+                        // Auto-stamp if holding enter/stamp AND floating layer exists
+                        if (actions.has('stamp') && floatingLayerSize > 0) {
+                            stamp(false);
                         }
-                        break;
-                    case 'KeyY':
-                        if (!isShift) {
-                            e.preventDefault();
-                            redo();
-                        }
-                        break;
-                    case 'KeyD': // Deselect (Pixel)
-                        e.preventDefault();
-                        if (selectedPixels.size > 0) {
-                            clearSelection();
-                            e.stopImmediatePropagation(); // Prevent falling through to Timeline deselect if pixels matched
-                        }
-                        break;
+                    } else if (actions.has('stamp') && floatingLayerSize > 0) {
+                        // Just stamping, no movement
+                        stamp(false);
+                    }
                 }
             }
-
-            // Delete Operations
-            // Shift+Delete is handled by Timeline (handleBulkDelete)
-            if ((e.key === 'Backspace' || e.key === 'Delete') && !isShift) {
-                clearCanvas();
-            }
+            animationFrameRef.current = requestAnimationFrame(gameLoop);
         };
 
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.code === 'Enter') {
-                isStampKeyHeldRef.current = false;
-            }
+        animationFrameRef.current = requestAnimationFrame(gameLoop);
+
+        return () => {
+            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         };
+    }, []);
+
+    useEffect(() => {
+        // Helper to safely bind/unbind continuous actions
+        const notifyActionsChanged = () => {
+            window.dispatchEvent(new CustomEvent('active-actions-changed', {
+                detail: Array.from(activeActionsRef.current)
+            }));
+        };
+
+        const bindAction = (key: string | string[], action: string) => {
+            Mousetrap.bind(key, (e) => {
+                e.preventDefault();
+                if (!activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.add(action);
+                    notifyActionsChanged();
+                    // Force an immediate tick on first press for responsiveness
+                    if (activeActionsRef.current.size === 1) lastTickRef.current = 0;
+                }
+            }, 'keydown');
+            Mousetrap.bind(key, (e) => {
+                e.preventDefault();
+                if (activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.delete(action);
+                    notifyActionsChanged();
+                    if (action === 'stamp') {
+                        stateRefs.current.commitHistory();
+                    }
+                }
+            }, 'keyup');
+        };
+
+        const bindSingleUIAction = (key: string | string[], action: string, callback: (e: KeyboardEvent) => void) => {
+            Mousetrap.bind(key, (e) => {
+                if (!activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.add(action);
+                    notifyActionsChanged();
+                    callback(e);
+                }
+            }, 'keydown');
+            Mousetrap.bind(key, () => {
+                if (activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.delete(action);
+                    notifyActionsChanged();
+                }
+            }, 'keyup');
+        };
+
+        // Continuous actions (Game Loop powered)
+        bindAction('left', 'left');
+        bindAction('right', 'right');
+        bindAction('up', 'up');
+        bindAction('down', 'down');
+        bindAction('enter', 'stamp');
+
+        // Note: Mousetrap automatically handles preventing defaults
+        // and ignoring inputs inside of textareas/inputs by default!
+
+        // Tools (Single Press)
+        Mousetrap.bind('b', () => setTool('brush'));
+        Mousetrap.bind('e', () => setTool('eraser'));
+        Mousetrap.bind(['f', 'g'], () => setTool('fill'));
+        Mousetrap.bind(['s', 'm'], () => setTool('select'));
+
+        // Brush Size
+        Mousetrap.bind('[', () => setBrushSize(1));
+        Mousetrap.bind(']', () => setBrushSize(2));
+
+        // Transport
+        Mousetrap.bind('space', (e) => { e.preventDefault(); setIsPlaying(!isPlaying); });
+
+        // Selection Actions
+        Mousetrap.bind('esc', () => {
+            if (selectedPixels.size > 0) clearSelection();
+        });
+        bindSingleUIAction('r', 'rotR', (e) => {
+            if (selectedPixels.size > 0) {
+                e.preventDefault();
+                rotateSelectionRight();
+                if (activeActionsRef.current.has('stamp')) stateRefs.current.stamp(false);
+            }
+        });
+        bindSingleUIAction('shift+r', 'rotL', (e) => {
+            if (selectedPixels.size > 0) {
+                e.preventDefault();
+                rotateSelectionLeft();
+                if (activeActionsRef.current.has('stamp')) stateRefs.current.stamp(false);
+            }
+        });
+        bindSingleUIAction('shift+h', 'flipH', (e) => {
+            if (selectedPixels.size > 0) {
+                e.preventDefault();
+                flipSelectionHorizontal();
+                if (activeActionsRef.current.has('stamp')) stateRefs.current.stamp(false);
+            }
+        });
+        bindSingleUIAction('shift+v', 'flipV', (e) => {
+            if (selectedPixels.size > 0) {
+                e.preventDefault();
+                flipSelectionVertical();
+                if (activeActionsRef.current.has('stamp')) stateRefs.current.stamp(false);
+            }
+        });
+
+        // Timeline Navigation
+        Mousetrap.bind([',', '<'], (e) => {
+            e.preventDefault();
+            const idx = sprites.findIndex(s => s.id === activeSpriteId);
+            if (idx !== -1) {
+                const count = sprites.length;
+                setActiveSpriteId(sprites[(idx - 1 + count) % count].id);
+            }
+        });
+        Mousetrap.bind(['.', '>'], (e) => {
+            e.preventDefault();
+            const idx = sprites.findIndex(s => s.id === activeSpriteId);
+            if (idx !== -1) {
+                setActiveSpriteId(sprites[(idx + 1) % sprites.length].id);
+            }
+        });
+
+        // Undo / Redo
+        Mousetrap.bind('mod+z', (e) => { e.preventDefault(); undo(); });
+        Mousetrap.bind('mod+shift+z', (e) => { e.preventDefault(); redo(); });
+        Mousetrap.bind('mod+y', (e) => { e.preventDefault(); redo(); });
+
+        // Deselect
+        Mousetrap.bind('mod+d', (e) => {
+            if (selectedPixels.size > 0) {
+                e.preventDefault();
+                clearSelection();
+            }
+        });
+
+        // Delete
+        Mousetrap.bind(['backspace', 'del'], () => clearCanvas());
 
         const handleWindowBlur = () => {
-            isStampKeyHeldRef.current = false;
+            if (activeActionsRef.current.size > 0) {
+                activeActionsRef.current.clear();
+                notifyActionsChanged();
+            }
         };
 
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
+        const handleVirtualKeyPress = (e: Event) => {
+            const customEvent = e as CustomEvent<{ action: string, type: 'down' | 'up' }>;
+            const { action, type } = customEvent.detail;
+
+            if (type === 'down') {
+                if (!activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.add(action);
+                    notifyActionsChanged();
+                    // Force tick on first press for instant feel
+                    if (activeActionsRef.current.size === 1) lastTickRef.current = 0;
+                }
+            } else {
+                if (activeActionsRef.current.has(action)) {
+                    activeActionsRef.current.delete(action);
+                    notifyActionsChanged();
+                    if (action === 'stamp') {
+                        stateRefs.current.commitHistory();
+                    }
+                }
+            }
+        };
+
         window.addEventListener('blur', handleWindowBlur);
+        window.addEventListener('virtual-key', handleVirtualKeyPress);
+
         return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
+            Mousetrap.reset();
             window.removeEventListener('blur', handleWindowBlur);
+            window.removeEventListener('virtual-key', handleVirtualKeyPress);
         };
     }, [
         setTool,

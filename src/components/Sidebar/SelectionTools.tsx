@@ -6,9 +6,7 @@ export const SelectionTools: React.FC = () => {
         flipSelectionHorizontal,
         flipSelectionVertical,
         rotateSelectionLeft,
-        rotateSelectionRight,
-        stamp,
-        isStamping
+        rotateSelectionRight
     } = useEditor();
 
     return (
@@ -19,16 +17,6 @@ export const SelectionTools: React.FC = () => {
                 <button className="action-btn" title="Flip Vertical (V)" onClick={flipSelectionVertical}>Flip V</button>
                 <button className="action-btn" title="Rotate Left (Q)" onClick={rotateSelectionLeft}>Rotate L</button>
                 <button className="action-btn" title="Rotate Right (E)" onClick={rotateSelectionRight}>Rotate R</button>
-            </div>
-            <div className="transform-controls">
-                <button
-                    className={`action-btn ${isStamping ? 'active' : ''}`}
-                    title="Stamp (Enter)"
-                    onClick={stamp}
-                    style={{ gridColumn: 'span 2', marginTop: '8px', fontSize: '0.85rem' }}
-                >
-                    Stamp
-                </button>
             </div>
         </div>
     );

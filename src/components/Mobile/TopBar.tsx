@@ -21,12 +21,6 @@ export const TopBar: React.FC = () => {
         currentColor,
         setCurrentColor,
         recentColors,
-        flipSelectionHorizontal,
-        flipSelectionVertical,
-        rotateSelectionLeft,
-        rotateSelectionRight,
-        stamp,
-        isStamping,
     } = useEditor();
 
     const topBarRef = useRef<HTMLDivElement>(null);
@@ -127,23 +121,6 @@ export const TopBar: React.FC = () => {
                     <button className="top-bar-btn" disabled={!canUndo} onClick={undo} style={{ opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'default' }}>Undo</button>
                     <button className="top-bar-btn" disabled={!canRedo} onClick={redo} style={{ opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'default' }}>Redo</button>
                     <button className="top-bar-btn" disabled={!canClear} onClick={clearCanvas} style={{ opacity: canClear ? 1 : 0.4, cursor: canClear ? 'pointer' : 'default' }}>Clear</button>
-                </div>
-            )}
-
-            {/* Selection Tools */}
-            {selectedPixels.size > 0 && (
-                <div className="top-bar-group">
-                    <button className="top-bar-btn" title="Flip Horizontal (H)" onClick={flipSelectionHorizontal}>Flip H</button>
-                    <button className="top-bar-btn" title="Flip Vertical (V)" onClick={flipSelectionVertical}>Flip V</button>
-                    <button className="top-bar-btn" title="Rotate Left (Q)" onClick={rotateSelectionLeft}>Rot L</button>
-                    <button className="top-bar-btn" title="Rotate Right (E)" onClick={rotateSelectionRight}>Rot R</button>
-                    <button
-                        className={`top-bar-btn ${isStamping ? 'active' : ''}`}
-                        title="Stamp (Enter)"
-                        onClick={stamp}
-                    >
-                        Stamp
-                    </button>
                 </div>
             )}
 

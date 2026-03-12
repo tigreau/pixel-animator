@@ -12,6 +12,7 @@ export interface EditorContextType {
     currentColor: string | null;
     currentTool: Tool;
     isDrawing: boolean;
+    activeActions: string[];
     recentColors: string[];
     setIsDrawing: (drawing: boolean) => void;
     updatePixel: (pixelIndex: number, maskConstraint?: 'inside' | 'outside' | null) => void;
@@ -46,7 +47,8 @@ export interface EditorContextType {
     isOnionSkinning: boolean;
     setIsOnionSkinning: (on: boolean) => void;
     importMultipleFromJSON: (files: { name: string; pixels: (string | null)[]; overlayPixels?: (string | null)[] }[]) => number[];
-    stamp: () => void;
+    stamp: (commit?: boolean) => void;
+    commitHistory: () => void;
     isStamping: boolean;
     fps: number;
     setFps: Dispatch<SetStateAction<number>>;

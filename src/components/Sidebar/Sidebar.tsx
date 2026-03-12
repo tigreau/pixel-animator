@@ -1,12 +1,9 @@
 import React, { useRef, useEffect } from 'react';
-import { useEditor } from '../../contexts/editorContextShared';
 import { RecentColors } from './RecentColors';
 import { PaletteGrid } from './PaletteGrid';
-import { SelectionTools } from './SelectionTools';
 import { EditorControls } from './EditorControls';
 
 export const Sidebar: React.FC = () => {
-    const { selectedPixels } = useEditor();
     const paletteRef = useRef<HTMLDivElement>(null);
     const animationAbortedRef = useRef(false);
 
@@ -46,11 +43,7 @@ export const Sidebar: React.FC = () => {
 
             <div className="palette-sidebar" ref={paletteRef}>
                 <RecentColors />
-                {selectedPixels.size > 0 ? (
-                    <SelectionTools />
-                ) : (
-                    <PaletteGrid />
-                )}
+                <PaletteGrid />
             </div>
         </aside>
     );

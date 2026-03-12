@@ -11,6 +11,7 @@ interface PixelProps {
     isSelected: boolean;
     isFloating: boolean;
     isStamping: boolean;
+    isNudging: boolean;
     onMouseDown: (index: number, e: React.MouseEvent<HTMLDivElement>) => void;
     onMouseEnter: (index: number) => void;
     onMouseUp: () => void;
@@ -27,12 +28,13 @@ const MemoizedPixel: React.FC<PixelProps> = React.memo(({
     isSelected,
     isFloating,
     isStamping,
+    isNudging,
     onMouseDown,
     onMouseEnter,
     onMouseUp
 }) => (
     <div
-        className={`pixel ${color ? 'has-color' : ''} ${isSelected ? 'is-selected' : ''} ${isFloating ? 'is-floating' : ''} ${isStamping && isFloating ? 'stamping' : ''}`}
+        className={`pixel ${color ? 'has-color' : ''} ${isSelected ? 'is-selected' : ''} ${isFloating ? 'is-floating' : ''} ${isStamping && isFloating && !isNudging ? 'stamping' : ''}`}
         style={color ? { backgroundColor: color, '--pixel-color': color } as React.CSSProperties : undefined}
         onMouseDown={(e) => onMouseDown(index, e)}
         onMouseEnter={() => onMouseEnter(index)}
@@ -77,7 +79,8 @@ export const Editor: React.FC = () => {
         setActiveLayer,
         isOverlayStacked,
         setIsOverlayStacked,
-        recentColors
+        recentColors,
+        activeActions
     } = useEditor();
 
     const activeSpriteIndex = sprites.findIndex(s => s.id === activeSpriteId);
@@ -1370,6 +1373,7 @@ export const Editor: React.FC = () => {
                         {!isPlaying && displayPixels.map((baseColor, index) => {
                             const color = floatingLayer.has(index) ? floatingLayer.get(index)! : baseColor;
                             const isFloating = floatingLayer.has(index);
+                            const isNudging = activeActions.some(a => ['up', 'down', 'left', 'right'].includes(a));
                             return (
                                 <MemoizedPixel
                                     key={index}
@@ -1378,6 +1382,7 @@ export const Editor: React.FC = () => {
                                     isSelected={selectedPixels.has(index)}
                                     isFloating={isFloating}
                                     isStamping={isStamping}
+                                    isNudging={isNudging}
                                     onMouseDown={handleMouseDown}
                                     onMouseEnter={handleMouseEnter}
                                     onMouseUp={handleMouseUp}
