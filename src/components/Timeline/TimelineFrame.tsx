@@ -99,7 +99,6 @@ export const TimelineFrame: React.FC<TimelineFrameProps> = React.memo(({
             data-selectable-id={sprite.id}
             style={{
                 position: 'relative', // For overlay positioning
-                touchAction: 'none'
             }}
         >
             <canvas

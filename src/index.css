@@ -285,9 +285,11 @@ body {
 }
 
 /* Scoped duplicate hover */
-.timeline-frame-list:not(.is-dragging) .timeline-frame:hover {
-    z-index: 5;
-    box-shadow: inset 0 0 0 1px var(--text-muted);
+@media (hover: hover) and (pointer: fine) {
+    .timeline-frame-list:not(.is-dragging) .timeline-frame:hover {
+        z-index: 5;
+        box-shadow: inset 0 0 0 1px var(--text-muted);
+    }
 }
 
 .timeline-frame.dragging {
@@ -1269,9 +1271,11 @@ body {
 }
 
 /* Only allow hover if NOT dragging */
-.timeline-frame-list:not(.is-dragging) .timeline-frame:hover {
-    border-color: var(--accent-color);
-    z-index: 1;
+@media (hover: hover) and (pointer: fine) {
+    .timeline-frame-list:not(.is-dragging) .timeline-frame:hover {
+        border-color: var(--accent-color);
+        z-index: 1;
+    }
 }
 
 .timeline-frame.add-new {
@@ -1493,6 +1497,10 @@ body {
 .timeline-frame-wrapper {
     width: 100%;
     height: 100%;
+}
+
+.timeline-frame-wrapper {
+    touch-action: pan-x pan-down !important;
 }
 
 .timeline-frame.dragging {

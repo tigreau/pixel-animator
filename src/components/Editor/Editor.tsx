@@ -1,9 +1,14 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useEditor } from '../../contexts/editorContextShared';
 import { calculateLassoSelection } from '../../utils/lasso';
 import { getLinePixels } from '../../utils/draw';
 import { MagnifyingGlass } from '../MagnifyingGlass';
 import { GRID_SIZE } from '../../types';
+
+interface PointerCoords {
+    clientX: number;
+    clientY: number;
+}
 
 interface PixelProps {
     index: number;
@@ -12,9 +17,6 @@ interface PixelProps {
     isFloating: boolean;
     isStamping: boolean;
     isNudging: boolean;
-    onMouseDown: (index: number, e: React.MouseEvent<HTMLDivElement>) => void;
-    onMouseEnter: (index: number) => void;
-    onMouseUp: () => void;
 }
 
 const EMPTY_SPRITE = {
@@ -28,17 +30,12 @@ const MemoizedPixel: React.FC<PixelProps> = React.memo(({
     isSelected,
     isFloating,
     isStamping,
-    isNudging,
-    onMouseDown,
-    onMouseEnter,
-    onMouseUp
+    isNudging
 }) => (
     <div
+        data-pixel-index={index}
         className={`pixel ${color ? 'has-color' : ''} ${isSelected ? 'is-selected' : ''} ${isFloating ? 'is-floating' : ''} ${isStamping && isFloating && !isNudging ? 'stamping' : ''}`}
         style={color ? { backgroundColor: color, '--pixel-color': color } as React.CSSProperties : undefined}
-        onMouseDown={(e) => onMouseDown(index, e)}
-        onMouseEnter={() => onMouseEnter(index)}
-        onMouseUp={onMouseUp}
     />
 ));
 
@@ -110,8 +107,8 @@ export const Editor: React.FC = () => {
     // Eyedropper State
     const [isEyedropperActive, setIsEyedropperActive] = useState(false);
     const [pointerPos, setPointerPos] = useState<{ x: number, y: number } | null>(null);
-    const [hoveredGridIndex, setHoveredGridIndex] = useState<number | null>(null);
-    const hoveredGridIndexRef = useRef<number | null>(null);
+    const [eyedropperTargetIndex, setEyedropperTargetIndex] = useState<number | null>(null);
+    const eyedropperTargetIndexRef = useRef<number | null>(null);
     const [linePreviewPixels, setLinePreviewPixels] = useState<number[]>([]);
     const [circlePreviewPixels, setCirclePreviewPixels] = useState<number[]>([]);
     const [showDropperHint, setShowDropperHint] = useState(false);
@@ -137,6 +134,18 @@ export const Editor: React.FC = () => {
     const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pointerStartPosRef = useRef<{ x: number, y: number } | null>(null);
     const isPointerDownRef = useRef(false);
+    const activePointerIdRef = useRef<number | null>(null);
+    const activeTouchPointerIdsRef = useRef<Set<number>>(new Set());
+    const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+    const isGestureZoomingRef = useRef(false);
+    const gestureTransformRef = useRef<{
+        startDistance: number;
+        startCenter: { x: number; y: number };
+        startPan: { x: number; y: number };
+        startZoom: number;
+    } | null>(null);
+    const activeTargetIndexRef = useRef<number | null>(null);
+    const mouseHoverIndexRef = useRef<number | null>(null);
     const pendingFillPixelRef = useRef<number | null>(null);
     const isPanningRef = useRef(false);
     const panStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
@@ -152,6 +161,78 @@ export const Editor: React.FC = () => {
 
     // Handle Scroll on Zoom
     const containerRef = useRef<HTMLDivElement>(null);
+    const panOffsetRef = useRef(panOffset);
+    const viewZoomRef = useRef(viewZoom);
+
+    useEffect(() => {
+        panOffsetRef.current = panOffset;
+    }, [panOffset]);
+
+    useEffect(() => {
+        viewZoomRef.current = viewZoom;
+    }, [viewZoom]);
+
+    const clampPanOffset = (nextX: number, nextY: number) => {
+        const container = containerRef.current;
+        const workspace = workspaceRef.current;
+        if (!container || !workspace) {
+            return { x: nextX, y: nextY };
+        }
+
+        const minVisible = 48;
+        const containerW = container.clientWidth;
+        const containerH = container.clientHeight;
+        const workspaceW = workspace.offsetWidth;
+        let workspaceH = workspace.offsetHeight;
+
+        if (stackButtonRef.current) {
+            const btnParent = stackButtonRef.current.offsetParent as HTMLElement | null;
+            if (btnParent) {
+                const protrusion = Math.max(
+                    0,
+                    stackButtonRef.current.offsetTop + stackButtonRef.current.offsetHeight - btnParent.offsetHeight
+                );
+                workspaceH += protrusion;
+            }
+        }
+
+        const maxX = (containerW + workspaceW) / 2 - minVisible;
+        const minX = -(containerW + workspaceW) / 2 + minVisible;
+        const maxY = (containerH + workspaceH) / 2 - minVisible;
+        const minY = -(containerH + workspaceH) / 2 + minVisible;
+
+        return {
+            x: Math.max(minX, Math.min(maxX, nextX)),
+            y: Math.max(minY, Math.min(maxY, nextY))
+        };
+    };
+
+    const getTouchGestureMetrics = () => {
+        const points = Array.from(activeTouchPointsRef.current.values());
+        if (points.length < 2) return null;
+
+        const [first, second] = points;
+        return {
+            center: {
+                x: (first.x + second.x) / 2,
+                y: (first.y + second.y) / 2
+            },
+            distance: Math.hypot(second.x - first.x, second.y - first.y)
+        };
+    };
+
+    const startTouchGestureTransform = () => {
+        const metrics = getTouchGestureMetrics();
+        if (!metrics) return;
+
+        gestureTransformRef.current = {
+            startDistance: Math.max(metrics.distance, 1),
+            startCenter: metrics.center,
+            startPan: panOffsetRef.current,
+            startZoom: viewZoomRef.current
+        };
+    };
+
     React.useLayoutEffect(() => {
         if (isZoomed && zoomFocusRef.current && containerRef.current) {
             const { x, y } = zoomFocusRef.current;
@@ -385,20 +466,127 @@ export const Editor: React.FC = () => {
         return Math.abs(cx - sx) <= 2 && Math.abs(cy - sy) <= 2;
     };
 
-    const handleMouseDown = (index: number, e: React.MouseEvent<HTMLDivElement>) => {
+    const getPixelElementFromPoint = (clientX: number, clientY: number): HTMLDivElement | null => {
+        const hit = document.elementFromPoint(clientX, clientY);
+        if (!(hit instanceof HTMLElement)) return null;
+
+        const pixel = hit.closest('[data-pixel-index]');
+        if (!(pixel instanceof HTMLDivElement)) return null;
+        if (!editorContainerRef.current?.contains(pixel)) return null;
+
+        return pixel;
+    };
+
+    const getGridIndexFromClientPoint = (clientX: number, clientY: number): number | null => {
+        const directHit = getPixelElementFromPoint(clientX, clientY);
+        if (directHit) {
+            const parsed = Number(directHit.dataset.pixelIndex);
+            if (Number.isInteger(parsed)) {
+                return parsed;
+            }
+        }
+
+        const editor = editorContainerRef.current;
+        if (!editor) return null;
+
+        const rect = editor.getBoundingClientRect();
+        const styles = window.getComputedStyle(editor);
+        const offsetWidth = editor.offsetWidth;
+        const offsetHeight = editor.offsetHeight;
+        const scaleX = offsetWidth > 0 ? rect.width / offsetWidth : 1;
+        const scaleY = offsetHeight > 0 ? rect.height / offsetHeight : 1;
+        const borderLeft = (Number.parseFloat(styles.borderLeftWidth) || 0) * scaleX;
+        const borderTop = (Number.parseFloat(styles.borderTopWidth) || 0) * scaleY;
+        const paddingLeft = (Number.parseFloat(styles.paddingLeft) || 0) * scaleX;
+        const paddingTop = (Number.parseFloat(styles.paddingTop) || 0) * scaleY;
+        const contentWidth = (Number.parseFloat(styles.width) || editor.clientWidth - (editor.clientLeft * 2)) * scaleX;
+        const contentHeight = (Number.parseFloat(styles.height) || editor.clientHeight - (editor.clientTop * 2)) * scaleY;
+        const gridLeft = rect.left + borderLeft + paddingLeft;
+        const gridTop = rect.top + borderTop + paddingTop;
+        const gridWidth = Math.max(0, contentWidth);
+        const gridHeight = Math.max(0, contentHeight);
+
+        if (gridWidth <= 0 || gridHeight <= 0) return null;
+        if (clientX < gridLeft || clientX >= gridLeft + gridWidth || clientY < gridTop || clientY >= gridTop + gridHeight) {
+            return null;
+        }
+
+        const col = Math.min(GRID_SIZE - 1, Math.floor(((clientX - gridLeft) / gridWidth) * GRID_SIZE));
+        const row = Math.min(GRID_SIZE - 1, Math.floor(((clientY - gridTop) / gridHeight) * GRID_SIZE));
+        return row * GRID_SIZE + col;
+    };
+
+    const updateHighlight = (index: number, pixelElement: HTMLDivElement | null = null) => {
+        const highlight = highlightRef.current;
+        const editor = editorContainerRef.current;
+        if (!highlight || !editor) return;
+
+        const pixel = pixelElement ?? editor.querySelector(`[data-pixel-index="${index}"]`);
+        if (!(pixel instanceof HTMLDivElement)) {
+            highlight.style.display = 'none';
+            return;
+        }
+
+        const row = Math.floor(index / GRID_SIZE);
+        const col = index % GRID_SIZE;
+        const isLarge = brushSize === 2 && (currentTool === 'brush' || currentTool === 'eraser');
+        const widthCells = isLarge && col + 1 < GRID_SIZE ? 2 : 1;
+        const heightCells = isLarge && row + 1 < GRID_SIZE ? 2 : 1;
+        const styles = window.getComputedStyle(editor);
+        const columnGap = Number.parseFloat(styles.columnGap || styles.gap || '0') || 0;
+        const rowGap = Number.parseFloat(styles.rowGap || styles.gap || '0') || 0;
+
+        highlight.style.left = `${pixel.offsetLeft}px`;
+        highlight.style.top = `${pixel.offsetTop}px`;
+        highlight.style.width = `${pixel.offsetWidth * widthCells + columnGap * (widthCells - 1)}px`;
+        highlight.style.height = `${pixel.offsetHeight * heightCells + rowGap * (heightCells - 1)}px`;
+        highlight.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        highlight.style.display = 'block';
+    };
+
+    const setEyedropperTarget = (index: number | null) => {
+        eyedropperTargetIndexRef.current = index;
+        setEyedropperTargetIndex(index);
+    };
+
+    const setMouseHoverTarget = (index: number | null, pixelElement: HTMLDivElement | null = null) => {
+        mouseHoverIndexRef.current = index;
+        if (index === null) {
+            hideHighlightOverlay();
+            return;
+        }
+
+        updateHighlight(index, pixelElement);
+    };
+
+    const clearMouseHoverState = () => {
+        setMouseHoverTarget(null);
+    };
+
+    const beginResolvedPointerInteraction = (
+        index: number,
+        point: PointerCoords,
+        pixelElement: HTMLDivElement | null,
+        pointerType: 'mouse' | 'touch' | 'pen'
+    ) => {
+        activeTargetIndexRef.current = index;
+        if (pointerType === 'mouse') {
+            setMouseHoverTarget(index, pixelElement);
+        } else {
+            clearMouseHoverState();
+        }
+
         if (isEyedropperActive) return;
 
-        hoveredGridIndexRef.current = index;
-        setHoveredGridIndex(index);
-
         isPointerDownRef.current = true;
-        pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
+        pointerStartPosRef.current = { x: point.clientX, y: point.clientY };
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
         }
 
-        if (currentTool === 'brush' || currentTool === 'fill' || currentTool === 'eraser') {
+        const supportsHoldEyedropper = pointerType !== 'touch';
+        if (supportsHoldEyedropper && (currentTool === 'brush' || currentTool === 'fill' || currentTool === 'eraser')) {
             setShowDropperHint(true);
             if (brushSize === 2 && (currentTool === 'brush' || currentTool === 'eraser')) {
                 const x = index % GRID_SIZE;
@@ -434,9 +622,8 @@ export const Editor: React.FC = () => {
                     setIsEyedropperActive(true);
                     setIsDrawing(false);
                     if (editorContainerRef.current) editorContainerRef.current.classList.add('hide-cursor');
-                    setPointerPos({ x: e.clientX, y: e.clientY });
-                    hoveredGridIndexRef.current = index;
-                    setHoveredGridIndex(index);
+                    setPointerPos({ x: point.clientX, y: point.clientY });
+                    setEyedropperTarget(index);
                     setShowDropperHint(false);
                     setDropperHoldOverlay(null);
                 }
@@ -486,12 +673,22 @@ export const Editor: React.FC = () => {
         updatePixel(index, dragOriginRef.current);
     };
 
-    const handleMouseEnter = (index: number) => {
-        hoveredGridIndexRef.current = index;
-        if (isEyedropperActive) {
-            setHoveredGridIndex(index);
+    const handleResolvedPointerTargetChange = (
+        index: number,
+        pixelElement: HTMLDivElement | null,
+        pointerType: 'mouse' | 'touch' | 'pen'
+    ) => {
+        activeTargetIndexRef.current = index;
+        if (pointerType === 'mouse') {
+            setMouseHoverTarget(index, pixelElement);
+        } else {
+            clearMouseHoverState();
         }
-        if (isEyedropperActive) return;
+
+        if (isEyedropperActive) {
+            setEyedropperTarget(index);
+            return;
+        }
 
         if (isCircleModeActiveRef.current) {
             if (strokeEndIndexRef.current !== index) {
@@ -523,29 +720,6 @@ export const Editor: React.FC = () => {
                 }
             }
             return;
-        }
-
-        // Update Highlight Div
-        if (highlightRef.current) {
-            const col = index % 32;
-            const row = Math.floor(index / 32);
-
-            // Use percentages for perfect scaling compatibility
-            const cellPercent = 100 / 32; // ~3.125% per cell
-
-            // Brush/Eraser use brushSize. Fill/Select always use 1x.
-            const isLarge = brushSize === 2 && (currentTool === 'brush' || currentTool === 'eraser');
-            const size = isLarge ? 2 : 1;
-
-            highlightRef.current.style.left = `${col * cellPercent}%`;
-            highlightRef.current.style.top = `${row * cellPercent}%`;
-            highlightRef.current.style.width = `${size * cellPercent}%`;
-            highlightRef.current.style.height = `${size * cellPercent}%`;
-
-            // Dynamic color/border for feedback?
-            // Use a solid border that contrasts well
-            highlightRef.current.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-            highlightRef.current.style.display = 'block';
         }
 
         if (isDrawing) {
@@ -655,7 +829,10 @@ export const Editor: React.FC = () => {
     };
 
     const handleMouseUp = () => {
+        activePointerIdRef.current = null;
+        activeTargetIndexRef.current = null;
         isPointerDownRef.current = false;
+        pointerStartPosRef.current = null;
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
@@ -741,9 +918,11 @@ export const Editor: React.FC = () => {
         if (editorContainerRef.current) editorContainerRef.current.classList.remove('cursor-masked');
     };
 
-    // Add MouseLeave to hide highlight
-    const handleMouseLeave = () => {
+    const resetEditorInteractionState = () => {
+        activePointerIdRef.current = null;
+        activeTargetIndexRef.current = null;
         isPointerDownRef.current = false;
+        pointerStartPosRef.current = null;
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
@@ -757,9 +936,7 @@ export const Editor: React.FC = () => {
         setShapeHintMode(null);
         shapeHintModeRef.current = null;
 
-        if (highlightRef.current) {
-            highlightRef.current.style.display = 'none';
-        }
+        clearMouseHoverState();
         // ... rest of logic
         setIsDrawing(false);
         isLassoingRef.current = false;
@@ -772,12 +949,44 @@ export const Editor: React.FC = () => {
         if (editorContainerRef.current) editorContainerRef.current.classList.remove('cursor-masked');
     };
 
-    const handleContainerMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        const target = e.target as HTMLElement;
-        const overEditor = !!target.closest('.main-sprite-editor');
-        if (!overEditor && highlightRef.current) {
+    const handlePointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (e.pointerType !== 'mouse') return;
+        activeTargetIndexRef.current = null;
+        clearMouseHoverState();
+    };
+
+    const hideHighlightOverlay = () => {
+        if (highlightRef.current) {
             highlightRef.current.style.display = 'none';
         }
+    };
+
+    const clearTransientPointerState = () => {
+        activeTargetIndexRef.current = null;
+        setEyedropperTarget(null);
+        setPointerPos(null);
+        clearMouseHoverState();
+    };
+
+    const cancelActiveInteraction = () => {
+        activePointerIdRef.current = null;
+        activeTargetIndexRef.current = null;
+        pendingFillPixelRef.current = null;
+        pointerStartPosRef.current = null;
+
+        if (isPanningRef.current) {
+            isPanningRef.current = false;
+            panStartRef.current = null;
+            if (containerRef.current) containerRef.current.style.cursor = 'default';
+        }
+
+        if (isEyedropperActive) {
+            setIsEyedropperActive(false);
+            clearTransientPointerState();
+            if (editorContainerRef.current) editorContainerRef.current.classList.remove('hide-cursor');
+        }
+
+        resetEditorInteractionState();
     };
 
     // Canvas Playback Logic
@@ -809,13 +1018,31 @@ export const Editor: React.FC = () => {
     // Scale editor based on brushSize (1x = 'Zoomed' 2x Scale, 2x = Normal 1x Scale)
     // Only apply scale if we are in the zoomed state
     // Pointer Events for Long Press (Container Level)
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0) return;
+    const handlePointerDown = (e: React.PointerEvent) => {
+        const pointerType = e.pointerType as 'mouse' | 'touch' | 'pen';
+        if (pointerType === 'touch') {
+            hideHighlightOverlay();
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            activeTouchPointerIdsRef.current.add(e.pointerId);
+            activeTouchPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (activeTouchPointerIdsRef.current.size > 1) {
+                isGestureZoomingRef.current = true;
+                cancelActiveInteraction();
+                startTouchGestureTransform();
+                return;
+            }
+            if (isGestureZoomingRef.current) return;
+        }
+
+        if (e.button !== 0 || !e.isPrimary) return;
         const target = e.target as HTMLElement;
-        const hitEditor = !!target.closest('.main-sprite-editor');
+        const hitEditor = !!editorContainerRef.current && editorContainerRef.current.contains(target);
         const hitButton = !!target.closest('button');
         if (!hitEditor) {
             if (!hitButton) {
+                activePointerIdRef.current = e.pointerId;
+                e.currentTarget.setPointerCapture(e.pointerId);
                 isPanningRef.current = true;
                 panStartRef.current = {
                     x: e.clientX,
@@ -828,106 +1055,87 @@ export const Editor: React.FC = () => {
             return;
         }
         if (target.closest('.layer-preview')) return;
-        isPointerDownRef.current = true;
-        pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
-    }, [panOffset.x, panOffset.y]);
 
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
+        const index = getGridIndexFromClientPoint(e.clientX, e.clientY);
+        if (index === null) return;
+
+        activePointerIdRef.current = e.pointerId;
+        activeTargetIndexRef.current = index;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        beginResolvedPointerInteraction(
+            index,
+            { clientX: e.clientX, clientY: e.clientY },
+            getPixelElementFromPoint(e.clientX, e.clientY),
+            pointerType
+        );
+    };
+
+    const handlePointerMove = (e: React.PointerEvent) => {
+        const pointerType = e.pointerType as 'mouse' | 'touch' | 'pen';
+        if (pointerType === 'touch') {
+            if (activeTouchPointerIdsRef.current.has(e.pointerId)) {
+                activeTouchPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            }
+
+            if (isGestureZoomingRef.current) {
+                const metrics = getTouchGestureMetrics();
+                const gesture = gestureTransformRef.current;
+                if (metrics && gesture) {
+                    const nextZoom = Math.max(
+                        MIN_VIEW_ZOOM,
+                        Math.min(MAX_VIEW_ZOOM, gesture.startZoom * (metrics.distance / gesture.startDistance))
+                    );
+                    setViewZoom(nextZoom);
+                    setPanOffset(clampPanOffset(
+                        gesture.startPan.x + (metrics.center.x - gesture.startCenter.x),
+                        gesture.startPan.y + (metrics.center.y - gesture.startCenter.y)
+                    ));
+                }
+                return;
+            }
+        }
+        if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+
         if (isPanningRef.current && panStartRef.current && containerRef.current) {
             const dx = e.clientX - panStartRef.current.x;
             const dy = e.clientY - panStartRef.current.y;
-            let nextX = panStartRef.current.offsetX + dx;
-            let nextY = panStartRef.current.offsetY + dy;
-            const minVisible = 48; // Keep at least this much workspace visible on-screen.
-
-            // Clamp based on unscaled workspace geometry (zoomed-out logic), so zoom level doesn't distort limits.
-            if (workspaceRef.current) {
-                const containerW = containerRef.current.clientWidth;
-                const containerH = containerRef.current.clientHeight;
-                const workspaceW = workspaceRef.current.offsetWidth;
-                let workspaceH = workspaceRef.current.offsetHeight;
-
-                if (stackButtonRef.current) {
-                    const btnParent = stackButtonRef.current.offsetParent as HTMLElement | null;
-                    if (btnParent) {
-                        const protrusion = Math.max(
-                            0,
-                            stackButtonRef.current.offsetTop + stackButtonRef.current.offsetHeight - btnParent.offsetHeight
-                        );
-                        workspaceH += protrusion;
-                    }
-                }
-
-                const maxX = (containerW + workspaceW) / 2 - minVisible;
-                const minX = -(containerW + workspaceW) / 2 + minVisible;
-                const maxY = (containerH + workspaceH) / 2 - minVisible;
-                const minY = -(containerH + workspaceH) / 2 + minVisible;
-
-                nextX = Math.max(minX, Math.min(maxX, nextX));
-                nextY = Math.max(minY, Math.min(maxY, nextY));
-            }
-
-            setPanOffset({
-                x: nextX,
-                y: nextY
-            });
-            return;
-        }
-
-        if (!isPointerDownRef.current) return;
-
-        if (isCircleModeActiveRef.current && editorContainerRef.current) {
-            const rect = editorContainerRef.current.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const col = Math.floor((x / rect.width) * GRID_SIZE);
-            const row = Math.floor((y / rect.height) * GRID_SIZE);
-            if (col >= 0 && col < GRID_SIZE && row >= 0 && row < GRID_SIZE) {
-                const idx = row * GRID_SIZE + col;
-                if (strokeEndIndexRef.current !== idx) {
-                    strokeEndIndexRef.current = idx;
-                    const circleStart = strokeStartIndexRef.current;
-                    if (circleStart !== null) {
-                        const circlePixels = getCirclePixelsFromDiameter(circleStart, idx).filter((pixelIdx) => {
-                            if (dragOriginRef.current === 'inside') return selectedPixels.has(pixelIdx);
-                            if (dragOriginRef.current === 'outside') return !selectedPixels.has(pixelIdx);
-                            return true;
-                        });
-                        setCirclePreviewPixels(circlePixels);
-                    }
-                }
-            }
-            return;
-        }
-
-        if (isLineModeActiveRef.current && editorContainerRef.current) {
-            const rect = editorContainerRef.current.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const col = Math.floor((x / rect.width) * GRID_SIZE);
-            const row = Math.floor((y / rect.height) * GRID_SIZE);
-            if (col >= 0 && col < GRID_SIZE && row >= 0 && row < GRID_SIZE) {
-                const idx = row * GRID_SIZE + col;
-                if (strokeEndIndexRef.current !== idx) {
-                    strokeEndIndexRef.current = idx;
-                    const lineStart = strokeStartIndexRef.current;
-                    if (lineStart !== null) {
-                        const linePixels = getLinePixels(lineStart, idx).filter((pixelIdx) => {
-                            if (dragOriginRef.current === 'inside') return selectedPixels.has(pixelIdx);
-                            if (dragOriginRef.current === 'outside') return !selectedPixels.has(pixelIdx);
-                            return true;
-                        });
-                        setLinePreviewPixels(linePixels);
-                    }
-                }
-            }
+            setPanOffset(clampPanOffset(
+                panStartRef.current.offsetX + dx,
+                panStartRef.current.offsetY + dy
+            ));
             return;
         }
 
         if (isEyedropperActive) {
             setPointerPos({ x: e.clientX, y: e.clientY });
-            return;
         }
+
+        const pixelElement = getPixelElementFromPoint(e.clientX, e.clientY);
+        const directIndex = pixelElement ? Number(pixelElement.dataset.pixelIndex) : NaN;
+        const index = Number.isInteger(directIndex)
+            ? directIndex
+            : getGridIndexFromClientPoint(e.clientX, e.clientY);
+
+        if (index === null) {
+            activeTargetIndexRef.current = null;
+            if (pointerType === 'mouse') {
+                clearMouseHoverState();
+            }
+            if (isEyedropperActive) {
+                setEyedropperTarget(null);
+            }
+        } else {
+            const needsTargetUpdate =
+                activeTargetIndexRef.current !== index ||
+                (pointerType === 'mouse' && mouseHoverIndexRef.current !== index) ||
+                (isEyedropperActive && eyedropperTargetIndexRef.current !== index);
+
+            if (needsTargetUpdate) {
+                handleResolvedPointerTargetChange(index, pixelElement, pointerType);
+            }
+        }
+
+        if (!isPointerDownRef.current || isEyedropperActive) return;
 
         // Optimization: If timer is already cleared (started drawing), skip distance check
         if (!longPressTimerRef.current) return;
@@ -943,16 +1151,44 @@ export const Editor: React.FC = () => {
                 shapeHintModeRef.current = null;
             }
         }
-    }, [isEyedropperActive, selectedPixels]);
+    };
 
-    const handlePointerUp = useCallback(() => {
+    const handlePointerUp = (e: React.PointerEvent) => {
+        const pointerType = e.pointerType as 'mouse' | 'touch' | 'pen';
+        if (pointerType === 'touch') {
+            activeTouchPointerIdsRef.current.delete(e.pointerId);
+            activeTouchPointsRef.current.delete(e.pointerId);
+            if (isGestureZoomingRef.current) {
+                if (activeTouchPointerIdsRef.current.size < 2) {
+                    gestureTransformRef.current = null;
+                }
+                if (activeTouchPointerIdsRef.current.size === 0) {
+                    isGestureZoomingRef.current = false;
+                    clearTransientPointerState();
+                }
+                return;
+            }
+        }
+
+        if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) return;
+
         if (isPanningRef.current) {
             isPanningRef.current = false;
             panStartRef.current = null;
-            if (containerRef.current) containerRef.current.style.cursor = 'grab';
+            activePointerIdRef.current = null;
+            activeTargetIndexRef.current = null;
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+            if (containerRef.current) containerRef.current.style.cursor = 'default';
             return;
         }
 
+        activePointerIdRef.current = null;
+        activeTargetIndexRef.current = null;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
         isPointerDownRef.current = false;
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
@@ -960,7 +1196,7 @@ export const Editor: React.FC = () => {
         }
 
         if (isEyedropperActive) {
-            const pickedIndex = hoveredGridIndexRef.current;
+            const pickedIndex = eyedropperTargetIndexRef.current;
             if (pickedIndex !== null && pickedIndex >= 0 && pickedIndex < GRID_SIZE * GRID_SIZE) {
                 const color = floatingLayer.has(pickedIndex)
                     ? floatingLayer.get(pickedIndex)
@@ -975,7 +1211,7 @@ export const Editor: React.FC = () => {
             }
 
             setIsEyedropperActive(false);
-            setHoveredGridIndex(null);
+            clearTransientPointerState();
             if (editorContainerRef.current) editorContainerRef.current.classList.remove('hide-cursor');
             setIsDrawing(false);
             setDragOrigin(null);
@@ -1000,7 +1236,31 @@ export const Editor: React.FC = () => {
             setShapeHintMode(null);
             shapeHintModeRef.current = null;
         }
-    }, [isEyedropperActive, floatingLayer, activeLayerPixels, setCurrentColor, currentTool, setTool, fill, setIsDrawing]);
+
+        handleMouseUp();
+        if (pointerType !== 'mouse') {
+            clearTransientPointerState();
+        }
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent) => {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        if (e.pointerType === 'touch') {
+            activeTouchPointerIdsRef.current.delete(e.pointerId);
+            activeTouchPointsRef.current.delete(e.pointerId);
+            if (activeTouchPointerIdsRef.current.size < 2) {
+                gestureTransformRef.current = null;
+            }
+            if (activeTouchPointerIdsRef.current.size === 0) {
+                isGestureZoomingRef.current = false;
+                clearTransientPointerState();
+            }
+        }
+
+        cancelActiveInteraction();
+    };
 
     useEffect(() => {
         const container = containerRef.current;
@@ -1024,9 +1284,12 @@ export const Editor: React.FC = () => {
         const onGestureStart = (event: Event) => {
             event.preventDefault();
             lastScale = 1;
+            isGestureZoomingRef.current = true;
+            cancelActiveInteraction();
         };
         const onGestureChange = (event: Event) => {
             event.preventDefault();
+            if (gestureTransformRef.current) return;
             const e = event as Event & { scale?: number };
             const scale = typeof e.scale === 'number' ? e.scale : 1;
             const delta = scale / Math.max(lastScale, 0.0001);
@@ -1036,6 +1299,10 @@ export const Editor: React.FC = () => {
         const onGestureEnd = (event: Event) => {
             event.preventDefault();
             lastScale = 1;
+            gestureTransformRef.current = null;
+            if (activeTouchPointerIdsRef.current.size === 0) {
+                isGestureZoomingRef.current = false;
+            }
         };
 
         // Safari gesture events (pinch). Attach broadly to block page zoom and route to workspace zoom.
@@ -1102,8 +1369,8 @@ export const Editor: React.FC = () => {
 
     const editorSizeCss = `min(620px, 50vw, 70vh)`;
 
-    const eyedropperColor = (isEyedropperActive && hoveredGridIndex !== null)
-        ? (floatingLayer.has(hoveredGridIndex) ? floatingLayer.get(hoveredGridIndex)! : activeLayerPixels[hoveredGridIndex])
+    const eyedropperColor = (isEyedropperActive && eyedropperTargetIndex !== null)
+        ? (floatingLayer.has(eyedropperTargetIndex) ? floatingLayer.get(eyedropperTargetIndex)! : activeLayerPixels[eyedropperTargetIndex])
         : null;
     const linePreviewSet = React.useMemo(() => {
         const preview = new Set<number>();
@@ -1191,12 +1458,11 @@ export const Editor: React.FC = () => {
         <div
             ref={containerRef}
             className="main-editor-container"
-            onMouseLeave={handleMouseLeave}
-            onMouseMove={handleContainerMouseMove}
-            onMouseUp={handleMouseUp}
+            onPointerLeave={handlePointerLeave}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
             style={{
                 display: 'flex',
                 overflow: 'auto',
@@ -1206,15 +1472,15 @@ export const Editor: React.FC = () => {
                 alignItems: 'center',
                 touchAction: 'none',
                 position: 'relative',
-                cursor: 'grab'
+                cursor: 'default'
             }}
         >
-            {isEyedropperActive && pointerPos && hoveredGridIndex !== null && (
+            {isEyedropperActive && pointerPos && eyedropperTargetIndex !== null && (
                 <MagnifyingGlass
                     screenX={pointerPos.x}
                     screenY={pointerPos.y}
-                    gridX={hoveredGridIndex % 32}
-                    gridY={Math.floor(hoveredGridIndex / 32)}
+                    gridX={eyedropperTargetIndex % 32}
+                    gridY={Math.floor(eyedropperTargetIndex / 32)}
                     pixelData={activeLayerPixels}
                     floatingLayer={floatingLayer}
                     targetColor={eyedropperColor || null}
@@ -1250,7 +1516,7 @@ export const Editor: React.FC = () => {
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', transform: `scale(${1 / viewZoom})`, transformOrigin: 'center bottom' }}>BASE</div>
                         <div
                             className="main-sprite-editor layer-preview"
-                            onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('base'); }}
+                            onPointerDown={(e) => { e.stopPropagation(); setActiveLayer('base'); }}
                             style={{
                                 width: editorSizeCss,
                                 height: editorSizeCss,
@@ -1383,9 +1649,6 @@ export const Editor: React.FC = () => {
                                     isFloating={isFloating}
                                     isStamping={isStamping}
                                     isNudging={isNudging}
-                                    onMouseDown={handleMouseDown}
-                                    onMouseEnter={handleMouseEnter}
-                                    onMouseUp={handleMouseUp}
                                 />
                             );
                         })}
@@ -1504,7 +1767,7 @@ export const Editor: React.FC = () => {
                     <button
                         ref={stackButtonRef}
                         className="secondary-btn-small"
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                             e.stopPropagation();
                             setIsOverlayStacked(!isOverlayStacked);
                         }}
@@ -1525,7 +1788,7 @@ export const Editor: React.FC = () => {
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', transform: `scale(${1 / viewZoom})`, transformOrigin: 'center bottom' }}>TOP</div>
                         <div
                             className="main-sprite-editor layer-preview"
-                            onMouseDown={(e) => { e.stopPropagation(); setActiveLayer('top'); }}
+                            onPointerDown={(e) => { e.stopPropagation(); setActiveLayer('top'); }}
                             style={{
                                 width: editorSizeCss,
                                 height: editorSizeCss,

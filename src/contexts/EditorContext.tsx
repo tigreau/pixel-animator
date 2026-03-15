@@ -591,6 +591,13 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const activeSprite = sprites.find(s => s.id === activeSpriteId);
 
+    React.useEffect(() => {
+        if (sprites.length === 0 || activeSprite) return;
+
+        // Bulk frame deletion can leave the active id pointing at a removed sprite.
+        setActiveSpriteId(sprites[0].id);
+    }, [activeSprite, sprites, setActiveSpriteId]);
+
     const fill = useCallback((startIndex: number) => {
         const layerKey = activeLayer === 'base' ? 'pixelData' : 'overlayPixelData';
 

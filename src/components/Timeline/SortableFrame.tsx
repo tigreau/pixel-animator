@@ -5,11 +5,12 @@ import { TimelineFrame } from './TimelineFrame';
 import type { Sprite } from '../../types';
 
 interface SortableFrameProps {
-    id: number; // The unique ID of the sprite (for dnd-kit)
+    id: number;
     sprite: Sprite;
     index: number;
     isActive: boolean;
 
+    dragAccepted?: boolean;
     isSelected?: boolean;
     forceDragging?: boolean;
     onMouseDown: (e: React.MouseEvent, index: number, sprite: Sprite) => void;
@@ -27,6 +28,7 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
     index,
     isActive,
 
+    dragAccepted = false,
     isSelected,
     forceDragging,
     onMouseDown,
@@ -50,13 +52,13 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
         disabled
     });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
+    const style: React.CSSProperties = {
+        transform: dragAccepted ? CSS.Transform.toString(transform) : undefined,
+        transition: dragAccepted ? transition : undefined,
         display: 'inline-block',
-        position: 'relative' as const,
-        zIndex: isDragging ? 100 : 'auto',
-        opacity: isDragging || forceDragging ? 0 : 1, // Hide original when dragging (overlay is shown)
+        position: 'relative',
+        zIndex: dragAccepted && isDragging ? 100 : 'auto',
+        opacity: forceDragging ? 0 : 1,
     };
 
     return (
@@ -80,7 +82,6 @@ export const SortableFrame: React.FC<SortableFrameProps> = ({
                 onPointerDown={onPointerDown}
                 onPointerUp={onPointerUp}
                 onPointerEnter={onPointerEnter}
-            // Native handlers not needed
             />
 
         </div>
